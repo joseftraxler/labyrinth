@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" fill="#080a12"/>
+  <!-- kus labyrintu, celý v bezpečné zóně pro maskable ikony -->
+  <g fill="none" stroke="#39405c" stroke-width="26" stroke-linecap="square">
+    <path d="M118 118 H394 V394 H118 Z"/>
+    <path d="M180 118 V300 H300 V180 H394"/>
+    <path d="M118 240 H180"/>
+    <path d="M240 394 V330"/>
+  </g>
+  <!-- bílá myš uprostřed, čumákem vzhůru -->
+  <g transform="translate(256 268)">
+    <path d="M0 -58 C 26 -34, 34 -6, 30 26 C 26 54, -26 54, -30 26 C -34 -6, -26 -34, 0 -58 Z" fill="#fdfdfb"/>
+    <circle cx="-30" cy="10" r="20" fill="#fdfdfb" stroke="#e7a0bd" stroke-width="7"/>
+    <circle cx="30" cy="10" r="20" fill="#fdfdfb" stroke="#e7a0bd" stroke-width="7"/>
+    <circle cx="-13" cy="-24" r="6" fill="#20222c"/>
+    <circle cx="13" cy="-24" r="6" fill="#20222c"/>
+    <circle cx="0" cy="-52" r="6" fill="#f2748f"/>
+    <path d="M0 50 C 18 74, -18 86, -4 104" fill="none" stroke="#f2a7c3" stroke-width="10" stroke-linecap="round"/>
+  </g>
+</svg>

@@ -1,0 +1,19 @@
+{
+  "name": "Labyrint",
+  "short_name": "Labyrint",
+  "description": "Bílá myš utíká ze středu labyrintu přes pasti ven – ovládání klávesnicí, myší i dotykem.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#080a12",
+  "theme_color": "#080a12",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+# Statické hostování hry – nic se nekompiluje, jen se servírují soubory.
+services:
+  labyrinth:
+    image: nginx:alpine
+    ports:
+      - "8000:80"
+    volumes:
+      - .:/usr/share/nginx/html:ro
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
