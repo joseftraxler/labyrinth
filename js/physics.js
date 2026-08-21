@@ -10,9 +10,11 @@
  * generátor má vlastní kopii těchhle konstant a ověřuje jimi průchodnost map.
  */
 
-export const BASE_SPEED = 5.2;      // rychlost běhu při 100 % (buněk/s)
-export const TURN_RATE = 13;        // rychlost natáčení myši i kamery (rad/s)
-export const TURN_BUFFER = 0.30;    // jak dlouho čeká požadavek na odbočku (s)
+// Rychlost je schválně nízká: tohle není hra na rychlost, ale na to vyznat se
+// v labyrintu. Myš musí stihnout přečíst chodbu dřív, než do ní vběhne.
+export const BASE_SPEED = 3.5;      // rychlost běhu při 100 % (buněk/s)
+export const TURN_RATE = 10;        // rychlost natáčení myši i kamery (rad/s)
+export const TURN_BUFFER = 0.40;    // jak dlouho čeká požadavek na odbočku (s)
 
 export const MOUSE_HIT = 0.36;      // poloměr myši pro smrtící dotyk (buňky)
 export const SAW_HIT = 0.46;        // poloměr pily

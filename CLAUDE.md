@@ -101,6 +101,21 @@ Z toho plynou dvě pravidla:
 `Mouse.heading` se za směrem opožďuje (`TURN_RATE`), takže i ostré zahnutí
 v mřížce vypadá jako plynulá otočka.
 
+## Minimapa: jediné místo, které se neotáčí
+
+V pravém horním rohu je plánek celého labyrintu (`Game.drawMinimap`) – slabě
+celý tvar chodeb, přes něj zeleně to, kudy už myš prošla, k tomu východ, doupě
+a tečka s čárkou, kam je myš otočená. **Sever je na plánku nahoře i tehdy, když
+se svět pod myší otáčí**: od toho plánek je, podle otáčející se mapy se plánovat
+nedá. Čárka směru je proto povinná, jinak by hráč nespojil plánek s tím, co vidí.
+
+Kreslí se ze dvou předkreslených obrázků (`mapPlan`, `mapTrail`) – celý labyrint
+a k tomu prošlé chodby, do kterých se přimalovává po jedné buňce v
+`updateVisibility`. V každém snímku jsou to tím pádem dvě `drawImage` a pár
+teček; překreslují se jen při změně levelu nebo velikosti okna (`resize`
+je zahazuje **vždycky**, protože velikost plánku plyne z rozměru okna, ne
+z velikosti buňky).
+
 ## Dosvit: vidět je jen kus labyrintu
 
 `Game.updateVisibility` prohledá labyrint od myši do vzdálenosti `SIGHT` –
@@ -158,6 +173,11 @@ z toho počítá, ne naopak.
   na co čekat. Je to zároveň jediný způsob, jak počkat před pastí: myš popoběhne
   zpátky a vrátí se v jinou chvíli.
 - Zeď **nezabíjí**. Myš není kostka z cube-runneru; do zdi se jen zapře.
+
+**Běh je schválně pomalý** (`BASE_SPEED`, rychlost levelů roste jen ze 100 na
+120 %). Tohle není hra na rychlost, ale na vyznání se v labyrintu: myš musí
+stihnout přečíst chodbu dřív, než do ní vběhne. Kdo chce přitvrdit, ať přidá
+na spletitosti mapy (`MIN_RUN`, míň smyček), ne na rychlosti.
 
 Konstanty jsou v `js/physics.js` a časování pastí v `js/traps.js`. **Když je
 změníš, přegeneruj a přeověř úrovně** – `tools/gen_mazes.py` má vlastní kopii
@@ -221,7 +241,11 @@ Pravidla rozmístění, bez kterých se levely rozsypou (`furnish`):
   k východu (`is_bridge`) ani v chodbě, která končí slepě.
 - **Kočka nesmí čekat u doupěte** – myš musí mít čas se rozeběhnout.
 - **Cesta k východu musí být aspoň `MIN_RUN`× delší než strana labyrintu**,
-  jinak by hráč vyběhl ven dřív, než by zjistil, kudy běží.
+  jinak by hráč vyběhl ven dřív, než by zjistil, kudy běží. Je to hlavní páka
+  na obtížnost: labyrint má být spletitý, ne rychlý.
+- **Smyček (`loops`) jen pár.** Každá probouraná zeď dělá z labyrintu mřížku,
+  ve které se nedá zabloudit; bez jediné by zase nebylo před kočkou kam uhnout.
+  Ve výchozím plánu jich je zhruba desetina strany labyrintu.
 
 Ověření (`find_path`) hledá posloupnost přeběhů **po vrstvách času**: přeběh
 mezi sousedními buňkami trvá vždycky stejně, takže je čas ve vrstvě přesně daný.

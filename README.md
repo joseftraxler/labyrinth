@@ -15,6 +15,11 @@ Myš vyběhne z doupěte uprostřed labyrintu a hledá jediný východ v obvodov
 Vidí přitom jen kousek chodeb kolem sebe – co je za rohem, zjistí, až tam
 doběhne. Cestou se dá posbírat sýr, ale k útěku ho potřeba není.
 
+Běží se pomalu a rozvážně: tohle není hra na rychlost, ale na to vyznat se
+v labyrintu. Pomáhá **plánek v pravém horním rohu** – ukazuje celý labyrint,
+zeleně to, kudy už jsi prošla, kde je východ a kterým směrem myš zrovna míří.
+Na plánku je sever nahoře, i když se labyrint pod myší otáčí.
+
 | Co chceš | Klávesnice | Dotyk a myš |
 | --- | --- | --- |
 | zahnout doleva | `←` / `A` | levý kraj obrazovky |

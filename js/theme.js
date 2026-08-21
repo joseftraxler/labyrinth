@@ -121,10 +121,14 @@ export class Theme {
         ctx.save();
         ctx.translate(cx, cy + bob);
 
-        ctx.fillStyle = 'rgba(255, 214, 92, 0.13)';
+        ctx.fillStyle = 'rgba(255, 226, 140, 0.22)';
         ctx.beginPath();
-        ctx.arc(0, 0, r * 1.6, 0, TAU);
+        ctx.arc(0, 0, r * 1.15, 0, TAU);
         ctx.fill();
+
+        // Klín je natočený – souměrný trojúhelník v kroužku vypadal jako
+        // tlačítko „přehrát“, ne jako kus sýra.
+        ctx.rotate(-0.35);
 
         // klín: špička vlevo, kulatá kůrka vpravo
         ctx.fillStyle = '#ffd45e';

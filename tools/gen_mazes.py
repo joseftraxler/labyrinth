@@ -30,7 +30,7 @@ LEVEL_DIR = ROOT / "js" / "levels"
 
 # ---- Kopie herních konstant (js/physics.js, js/traps.js) --------------------
 
-BASE_SPEED = 5.2
+BASE_SPEED = 3.5
 MOUSE_HIT = 0.36
 SAW_HIT = 0.46
 SAW_SPEED = 0.60
@@ -73,16 +73,16 @@ LEVEL_PLAN = [
     # Nástrahy přibývají po druzích, ne hromadně: první level je jen labyrint
     # se dvěma sklapovačkami, propadla se přidají ve druhém, pily ve třetím
     # a kočka až ve čtvrtém – každý svět tak přinese jednu novou věc k naučení.
-    dict(size=15, speed=100, theme=None,      loops=3, snaps=2, pits=0, saws=0, cats=0, cheese=4),
-    dict(size=17, speed=104, theme="cellar",  loops=4, snaps=4, pits=2, saws=0, cats=0, cheese=5),
-    dict(size=19, speed=108, theme="kitchen", loops=5, snaps=5, pits=2, saws=1, cats=0, cheese=5),
-    dict(size=21, speed=112, theme="sewer",   loops=6, snaps=4, pits=4, saws=1, cats=1, cheese=6),
-    dict(size=23, speed=116, theme=None,      loops=7, snaps=6, pits=4, saws=1, cats=1, cheese=6),
-    dict(size=25, speed=122, theme="cellar",  loops=8, snaps=7, pits=4, saws=2, cats=2, cheese=7),
-    dict(size=27, speed=128, theme="kitchen", loops=10, snaps=8, pits=4, saws=2, cats=2, cheese=7),
-    dict(size=29, speed=134, theme="sewer",   loops=11, snaps=7, pits=6, saws=2, cats=2, cheese=8),
-    dict(size=31, speed=140, theme=None,      loops=15, snaps=8, pits=6, saws=3, cats=2, cheese=8),
-    dict(size=33, speed=148, theme="cellar",  loops=14, snaps=9, pits=7, saws=3, cats=3, cheese=9),
+    dict(size=15, speed=100, theme=None,      loops=2, snaps=2, pits=0, saws=0, cats=0, cheese=4),
+    dict(size=17, speed=102, theme="cellar",  loops=2, snaps=4, pits=2, saws=0, cats=0, cheese=5),
+    dict(size=19, speed=104, theme="kitchen", loops=3, snaps=5, pits=2, saws=1, cats=0, cheese=5),
+    dict(size=21, speed=106, theme="sewer",   loops=4, snaps=4, pits=4, saws=1, cats=1, cheese=6),
+    dict(size=23, speed=108, theme=None,      loops=5, snaps=6, pits=4, saws=1, cats=1, cheese=6),
+    dict(size=25, speed=110, theme="cellar",  loops=6, snaps=7, pits=4, saws=2, cats=2, cheese=7),
+    dict(size=27, speed=112, theme="kitchen", loops=7, snaps=8, pits=4, saws=2, cats=2, cheese=7),
+    dict(size=29, speed=114, theme="sewer",   loops=8, snaps=7, pits=6, saws=2, cats=2, cheese=8),
+    dict(size=31, speed=116, theme=None,      loops=10, snaps=8, pits=6, saws=3, cats=2, cheese=8),
+    dict(size=33, speed=120, theme="cellar",  loops=11, snaps=9, pits=7, saws=3, cats=3, cheese=9),
 ]
 
 
@@ -545,9 +545,10 @@ def maze_from_rows(rows):
 
 
 # Nejkratší cesta k východu musí být aspoň tolikrát delší než strana labyrintu.
-# Bez toho by se smyčkami prokopaný labyrint scvrkl na pár chodeb: hráč by vyběhl
-# ze středu a byl venku dřív, než by stihl zjistit, kudy běží.
-MIN_RUN = 1.6
+# Je to hlavní páka na to, aby byl labyrint spíš spletitý než rychlý: hráč má
+# hledat cestu, ne běžet rovně ven. Když se labyrint tak dlouhou cestou nepodaří
+# postavit, generátor ho zahodí a zkusí jiný.
+MIN_RUN = 2.4
 
 
 def build(index, plan):

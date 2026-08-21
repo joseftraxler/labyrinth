@@ -27,6 +27,10 @@ const VIEW_Y = 0.62;
 // Kolik podob má dlaždice podlahy a zdi (vybírá se podle souřadnic buňky)
 const TILE_VARIANTS = 8;
 
+// Největší strana minimapy v pixelech a její odstup od rohu
+const MAP_MAX = 150;
+const MAP_PAD = 10;
+
 export class Game {
     constructor(canvas, levels, controls) {
         this.c = canvas;
@@ -47,6 +51,7 @@ export class Game {
         this.wallTiles = [];
         this.particles = [];
         this.visible = new Map();   // klíč buňky → vzdálenost od myši po chodbě
+        this.seen = new Set();      // kudy už myš v tomhle pokusu prošla
 
         this.loadLevel();
         this.resize();
@@ -81,6 +86,8 @@ export class Game {
         this.progress = 0;
         this.particles.length = 0;
         this.camHeading = this.mouse.heading;
+        this.seen.clear();
+        this.mapSeen = null;
         this.updateVisibility(true);
 
         this.sound.setTrack(this.theme.audio(), this.levelIndex);
@@ -255,6 +262,11 @@ export class Game {
             this.tile = tile;
             this.#dropStaleCaches();
         }
+
+        // Minimapa se počítá z rozměru okna, takže se překresluje při každé
+        // změně velikosti – i takové, na které je velikost buňky ještě stejná.
+        this.mapBase = null;
+        this.mapSeen = null;
     }
 
     /**
@@ -265,6 +277,8 @@ export class Game {
     #dropStaleCaches() {
         this.floorTiles.length = 0;
         this.wallTiles.length = 0;
+        this.mapBase = null;
+        this.mapSeen = null;
     }
 
     // ---- Smyčka ----
@@ -401,6 +415,14 @@ export class Game {
                 queue.push({x, y, d: cell.d + 1});
             }
         }
+
+        // Do minimapy se prokreslí jen to nové – projít celý labyrint v každém
+        // snímku by bylo dražší než celý zbytek kresby dohromady.
+        for (const key of this.visible.keys()) {
+            if (this.seen.has(key)) continue;
+            this.seen.add(key);
+            this.paintSeen(key);
+        }
     }
 
     /** Jak silně je buňka osvětlená (0 = tma, 1 = přímo u myši). */
@@ -481,6 +503,7 @@ export class Game {
 
         this.drawFog();
         this.theme.drawAir(ctx);
+        this.drawMinimap();
         this.drawHud();
         this.drawOverlay();
     }
@@ -631,6 +654,132 @@ export class Game {
 
         ctx.fillStyle = fog;
         ctx.fillRect(0, 0, this.w, this.h);
+    }
+
+    // ---- Minimapa ----
+
+    /**
+     * Plánek celého labyrintu v rohu obrazovky s tečkou, kde je myš. Je to
+     * jediné místo ve hře, které se **neotáčí**: podle otáčející se mapy se
+     * plánovat nedá a od toho je tady pohled na labyrint shora.
+     *
+     * Kreslí se ze dvou předkreslených obrázků – celý labyrint slabě a přes něj
+     * to, kudy už myš prošla. Znovu se překreslují jen při změně velikosti nebo
+     * levelu; v každém snímku je to tím pádem dvakrát `drawImage` a dvě tečky,
+     * ne tisíc obdélníčků.
+     */
+    drawMinimap() {
+        const ctx = this.ctx;
+        const cell = this.mapCell();
+        const w = cell * this.level.width;
+        const h = cell * this.level.height;
+        const x = this.w - w - MAP_PAD;
+        const y = HUD + MAP_PAD;
+
+        ctx.save();
+
+        // podklad, ať je plánek čitelný i nad světlou podlahou
+        ctx.fillStyle = 'rgba(8, 10, 20, 0.72)';
+        ctx.strokeStyle = 'rgba(233, 237, 255, 0.18)';
+        ctx.lineWidth = 1;
+        roundRect(ctx, x - 5, y - 5, w + 10, h + 10, 6);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.drawImage(this.mapPlan(), x, y);
+        ctx.drawImage(this.mapTrail(), x, y);
+
+        // východ – bliká, aby bylo poznat, kam se běží
+        const exit = this.level.exit;
+        ctx.fillStyle = `rgba(255, 226, 150, ${0.55 + 0.45 * Math.sin(this.clock * 3)})`;
+        ctx.fillRect(x + exit.x * cell - 1, y + exit.y * cell - 1, cell + 2, cell + 2);
+
+        // doupě, ze kterého se vyběhlo – kvůli orientaci, kde je střed
+        const den = this.level.start;
+        ctx.strokeStyle = 'rgba(233, 237, 255, 0.5)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(x + (den.x + 0.5) * cell, y + (den.y + 0.5) * cell, Math.max(2, cell * 0.9), 0, TAU);
+        ctx.stroke();
+
+        // myš i s tím, kam je otočená – na plánku je sever nahoře, ve hře ne,
+        // takže bez čárky by hráč nevěděl, kterým směrem se vlastně žene
+        const mx = x + this.mouse.x * cell;
+        const my = y + this.mouse.y * cell;
+        const dot = Math.max(2, cell * 0.7);
+
+        ctx.strokeStyle = 'rgba(8, 10, 20, 0.9)';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(mx, my);
+        ctx.lineTo(mx + Math.cos(this.mouse.heading) * dot * 2.6, my + Math.sin(this.mouse.heading) * dot * 2.6);
+        ctx.stroke();
+
+        ctx.strokeStyle = '#7df9c6';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = 'rgba(8, 10, 20, 0.9)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(mx, my, dot, 0, TAU);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.restore();
+    }
+
+    /** Kolik pixelů má na minimapě jedna buňka. */
+    mapCell() {
+        const room = Math.min(this.w * 0.28, (this.h - HUD) * 0.34, MAP_MAX);
+        return Math.max(2, Math.floor(room / Math.max(this.level.width, this.level.height)));
+    }
+
+    #mapCanvas() {
+        const cell = this.mapCell();
+        const canvas = document.createElement('canvas');
+        canvas.width = cell * this.level.width;
+        canvas.height = cell * this.level.height;
+        return canvas;
+    }
+
+    /** Celý labyrint slabě – tvar chodeb, ve kterém myš ještě nebyla. */
+    mapPlan() {
+        if (this.mapBase) return this.mapBase;
+
+        const cell = this.mapCell();
+        this.mapBase = this.#mapCanvas();
+        const ctx = this.mapBase.getContext('2d');
+
+        ctx.fillStyle = 'rgba(233, 237, 255, 0.13)';
+        for (let y = 0; y < this.level.height; y++) {
+            for (let x = 0; x < this.level.width; x++) {
+                if (this.level.isFree(x, y)) ctx.fillRect(x * cell, y * cell, cell, cell);
+            }
+        }
+        return this.mapBase;
+    }
+
+    /** Chodby, které už myš viděla. Přikresluje se po jedné buňce za běhu. */
+    mapTrail() {
+        if (this.mapSeen) return this.mapSeen;
+
+        this.mapSeen = this.#mapCanvas();
+        for (const key of this.seen) this.paintSeen(key);
+        return this.mapSeen;
+    }
+
+    paintSeen(key) {
+        if (!this.mapSeen) return;
+
+        const cell = this.mapCell();
+        const x = key % this.level.width;
+        const y = (key - x) / this.level.width;
+
+        const ctx = this.mapSeen.getContext('2d');
+        ctx.fillStyle = 'rgba(125, 249, 198, 0.55)';
+        ctx.fillRect(x * cell, y * cell, cell, cell);
     }
 
     // ---- Předkreslené dlaždice ----

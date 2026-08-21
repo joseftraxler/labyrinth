@@ -504,7 +504,7 @@ const count = await page.evaluate(() => window.labyrinth.levels.length);
 for (let index = 0; index < count; index++) {
     if (only && index + 1 !== only) continue;
 
-    const result = await page.evaluate(playInPage, [index, 1 / 120, 180, 8, trace]);
+    const result = await page.evaluate(playInPage, [index, 1 / 120, 240, 8, trace]);
     if (result.ok) {
         console.log(`level ${index + 1}: venku za ${result.seconds} s, ${result.deaths}× smrt, sýr ${result.cheese}`);
     } else {
