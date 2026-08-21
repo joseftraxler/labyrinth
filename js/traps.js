@@ -12,13 +12,16 @@
  * když se tady něco změní, musí se to promítnout i tam.
  */
 
-export const SNAP_PERIOD = 2.0;     // perioda sklapovačky (s)
-export const SNAP_CLOSED = 0.70;    // jak dlouho je z toho sklapnutá (s)
-export const SNAP_WARN = 0.35;      // varovné napnutí pružiny těsně před sklapnutím (s)
+// Časy pastí jdou ruku v ruce s rychlostí běhu (`BASE_SPEED`): pomalejší myš je
+// v dosahu pasti déle, takže se se zpomalením hry musí prodloužit i cyklus –
+// jinak by se z čekací hádanky stala zkouška reflexů.
+export const SNAP_PERIOD = 2.6;     // perioda sklapovačky (s)
+export const SNAP_CLOSED = 0.85;    // jak dlouho je z toho sklapnutá (s)
+export const SNAP_WARN = 0.45;      // varovné napnutí pružiny těsně před sklapnutím (s)
 
-export const PIT_PERIOD = 2.6;      // perioda propadla (s)
-export const PIT_OPEN = 1.05;       // jak dlouho je z toho otevřené (s)
-export const PIT_WARN = 0.40;       // vrzání víka před otevřením (s)
+export const PIT_PERIOD = 3.4;      // perioda propadla (s)
+export const PIT_OPEN = 1.30;       // jak dlouho je z toho otevřené (s)
+export const PIT_WARN = 0.50;       // vrzání víka před otevřením (s)
 
 /**
  * Fáze pasti v buňce jako podíl 0–1. Sousední pasti musí spouštět v různý čas –

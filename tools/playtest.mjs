@@ -286,6 +286,7 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
         // jinak by autopilot považoval každou zatáčku za slepou uličku.
         for (let k = 0; k < 9; k++) {
             if (!game.level.isFree(cx, cy)) return false;
+            if (game.level.isExit(cx, cy)) return true;   // ven je ta nejlepší cesta ven
 
             const ways = game.level.exits(cx, cy);
             if (ways > 2) return true;
@@ -428,9 +429,13 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
 
         if (trace && frame % Math.round(0.1 / dt) === 0) {
             const mouse = game.mouse;
+            const ax = mouse.cx + DIRS[mouse.dir][0];
+            const ay = mouse.cy + DIRS[mouse.dir][1];
+            const arrival = game.clock + (1 - mouse.off) / game.runSpeed;
             recent.push(`${elapsed.toFixed(1)}s myš ${mouse.x.toFixed(1)},${mouse.y.toFixed(1)} dir${mouse.dir}` +
-                ` hrozba ${threatIn(mouse.dir).toFixed(1)} couvnout=${canReverse(true)}` +
-                ` | ${dangers().map(d => `${d.x.toFixed(1)},${d.y.toFixed(1)}`).join(' ')}`);
+                ` off=${mouse.off.toFixed(2)} vpřed ${ax},${ay} (${game.level.trapAt(ax, ay) ?? '-'})` +
+                ` bezpečno=${safe(ax, ay, arrival)} příjezd=${arrival.toFixed(2)}` +
+                ` hrozba ${threatIn(mouse.dir).toFixed(1)} couvnout=${canReverse(true)}`);
             if (recent.length > 25) recent.shift();
         }
         if (trace && frame % Math.round(0.5 / dt) === 0) {
@@ -504,7 +509,7 @@ const count = await page.evaluate(() => window.labyrinth.levels.length);
 for (let index = 0; index < count; index++) {
     if (only && index + 1 !== only) continue;
 
-    const result = await page.evaluate(playInPage, [index, 1 / 120, 240, 8, trace]);
+    const result = await page.evaluate(playInPage, [index, 1 / 120, 360, 8, trace]);
     if (result.ok) {
         console.log(`level ${index + 1}: venku za ${result.seconds} s, ${result.deaths}× smrt, sýr ${result.cheese}`);
     } else {

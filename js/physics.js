@@ -12,8 +12,15 @@
 
 // Rychlost je schválně nízká: tohle není hra na rychlost, ale na to vyznat se
 // v labyrintu. Myš musí stihnout přečíst chodbu dřív, než do ní vběhne.
-export const BASE_SPEED = 3.5;      // rychlost běhu při 100 % (buněk/s)
-export const TURN_RATE = 10;        // rychlost natáčení myši i kamery (rad/s)
+export const BASE_SPEED = 2.35;     // rychlost běhu při 100 % (buněk/s)
+
+/**
+ * Jak rychle se myš (a s ní celý labyrint) otáčí do nového směru. Je to
+ * schválně **pomalejší, než trvá přeběh buňky**: zahnutí v mřížce je skok, ale
+ * na obrazovce z něj má být pozvolná otočka mapy, ne cuknutí. Čtvrtotáčka trvá
+ * kolem 0,3 s, otočka zpátky dvakrát tolik.
+ */
+export const TURN_RATE = 5;         // rychlost natáčení myši i kamery (rad/s)
 export const TURN_BUFFER = 0.40;    // jak dlouho čeká požadavek na odbočku (s)
 
 export const MOUSE_HIT = 0.36;      // poloměr myši pro smrtící dotyk (buňky)
@@ -29,9 +36,12 @@ export const SAW_SPEED = 0.60;      // rychlost pily jako násobek rychlosti my�
  * načasování – počkej, až odjede na druhý konec, a proběhni.
  */
 export const SAW_REACH = 2;
-export const CAT_SPEED = 0.72;      // kočka je schválně pomalejší než myš
-export const CAT_SIGHT = 7;         // na kolik buněk kočka rovnou chodbou vidí
-export const CAT_FORGET = 2.5;      // jak dlouho honí myš, kterou ztratila (s)
+// Kočka je schválně pomalejší než myš a vidí kratší kus chodby, než kam dosáhne
+// myší dosvit (`SIGHT`) – hráč ji tak zahlédne dřív než ona jeho a dá se jí
+// utéct. Čísla drž raději níž: v pomalé hře se před kočkou couvá dlouho.
+export const CAT_SPEED = 0.68;      // násobek rychlosti myši
+export const CAT_SIGHT = 6;         // na kolik buněk kočka rovnou chodbou vidí
+export const CAT_FORGET = 2.0;      // jak dlouho honí myš, kterou ztratila (s)
 
 // Dosvit myšího zraku v buňkách – měří se **po chodbě**, ne vzdušnou čarou,
 // takže za roh není vidět dál, než kam vede cesta. Je schválně větší než

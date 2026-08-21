@@ -1,6 +1,6 @@
 import {Level} from "../level.js";
 
-// Soubor generuje tools/gen_mazes.py (otisk mapy 7b0c0ba9).
+// Soubor generuje tools/gen_mazes.py (otisk mapy dffc2d1d).
 // Ruční úpravu generátor podle otisku pozná a soubor nepřepíše;
 // vynutit přegenerování jde přepínačem --force.
 // První argument = rychlost běhu v % základní rychlosti (100 = BASE_SPEED).
@@ -9,7 +9,7 @@ const level2 = new Level(
     "#################",
     "#     #         #",
     "# ##### ### #####",
-    "#   H #   # H T #",
+    "#   T #   # * T #",
     "##### ### ##### #",
     "#T    #       # #",
     "# ##### ##### # #",
@@ -21,7 +21,7 @@ const level2 = new Level(
     "### ###*  ##### #",
     "#   # #   #     #",
     "# ### ##### ### #",
-    "#    *    *T#   #",
+    "#    H    H*#   #",
     "#############F###",
 );
 

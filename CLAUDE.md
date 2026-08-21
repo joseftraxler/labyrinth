@@ -98,8 +98,10 @@ Z toho plynou dvě pravidla:
   `Game.drawFog` a `Theme.drawAir` běží až po `ctx.restore()`, bez otáčení – je
   to světlo, které myš nese s sebou, ne kus mapy.
 
-`Mouse.heading` se za směrem opožďuje (`TURN_RATE`), takže i ostré zahnutí
-v mřížce vypadá jako plynulá otočka.
+`Mouse.heading` se za směrem opožďuje (`TURN_RATE`) a **schválně pomaleji, než
+trvá přeběh buňky**: zahnutí je v mřížce skok, ale na obrazovce z něj má být
+pozvolné otočení mapy, ne cuknutí. Čtvrtotáčka trvá kolem 0,3 s, otočka zpátky
+dvakrát tolik.
 
 ## Minimapa: jediné místo, které se neotáčí
 
@@ -189,7 +191,10 @@ obojího a musí sedět.
 
 - **Sklapovačka (`T`)** a **propadlo (`H`)** jsou čekací hádanky: cyklicky se
   zavřou a otevřou, fázi mají z vlastní buňky (`phase` v `js/traps.js`), takže
-  řada pastí vedle sebe nespouští naráz. Před sklapnutím se pružina chvěje
+  řada pastí vedle sebe nespouští naráz. Délka cyklu jde ruku v ruce s rychlostí
+  běhu (`BASE_SPEED`) – pomalejší myš je v dosahu pasti déle, takže se se
+  zpomalením hry musí prodloužit i cyklus, jinak z čekací hádanky bude zkouška
+  reflexů. Před sklapnutím se pružina chvěje
   a před otevřením víko vrže – past má být nebezpečná, ne zákeřná.
 - **Pila (`S`)** jezdí sem a tam po **krátkém** úseku chodby (`SAW_REACH`
   buňky na každou stranu). Krátký je schválně: myš je rychlejší než pila, takže
@@ -235,8 +240,10 @@ nejdál od doupěte, rozmístit nástrahy a **odsimulovat, že se to dá projít
 
 Pravidla rozmístění, bez kterých se levely rozsypou (`furnish`):
 
-- **Nástrahy se nesmí dotýkat.** Dvě pasti vedle sebe chtějí trefit dvě chvíle
-  naráz a v jednopolíčkové chodbě se mezi nimi nedá zastavit.
+- **Mezi dvěma nástrahami musí zbýt aspoň dvě volné buňky** (`SPACING`). Čeká se
+  popobíháním tam a zpátky a otočka padne doprostřed buňky – se dvěma pastmi
+  obtékajícími jedinou volnou buňku by nebylo kde počkat a hráč by musel trefit
+  dvě chvíle naráz.
 - **Na dráze pily nesmí být nic jiného** a pila nesmí stát v jediné cestě
   k východu (`is_bridge`) ani v chodbě, která končí slepě.
 - **Kočka nesmí čekat u doupěte** – myš musí mít čas se rozeběhnout.

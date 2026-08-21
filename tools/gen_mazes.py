@@ -30,16 +30,16 @@ LEVEL_DIR = ROOT / "js" / "levels"
 
 # ---- Kopie herních konstant (js/physics.js, js/traps.js) --------------------
 
-BASE_SPEED = 3.5
+BASE_SPEED = 2.35
 MOUSE_HIT = 0.36
 SAW_HIT = 0.46
 SAW_SPEED = 0.60
 SAW_REACH = 2          # o kolik buněk pila zajede na každou stranu
 
-SNAP_PERIOD = 2.0
-SNAP_CLOSED = 0.70
-PIT_PERIOD = 2.6
-PIT_OPEN = 1.05
+SNAP_PERIOD = 2.6
+SNAP_CLOSED = 0.85
+PIT_PERIOD = 3.4
+PIT_OPEN = 1.30
 
 # Jak daleko od středu buňky past ještě dosáhne (js/game.js, `Game.deadly`)
 TRAP_REACH = 0.44
@@ -78,11 +78,11 @@ LEVEL_PLAN = [
     dict(size=19, speed=104, theme="kitchen", loops=3, snaps=5, pits=2, saws=1, cats=0, cheese=5),
     dict(size=21, speed=106, theme="sewer",   loops=4, snaps=4, pits=4, saws=1, cats=1, cheese=6),
     dict(size=23, speed=108, theme=None,      loops=5, snaps=6, pits=4, saws=1, cats=1, cheese=6),
-    dict(size=25, speed=110, theme="cellar",  loops=6, snaps=7, pits=4, saws=2, cats=2, cheese=7),
+    dict(size=25, speed=110, theme="cellar",  loops=6, snaps=7, pits=4, saws=2, cats=1, cheese=7),
     dict(size=27, speed=112, theme="kitchen", loops=7, snaps=8, pits=4, saws=2, cats=2, cheese=7),
     dict(size=29, speed=114, theme="sewer",   loops=8, snaps=7, pits=6, saws=2, cats=2, cheese=8),
     dict(size=31, speed=116, theme=None,      loops=10, snaps=8, pits=6, saws=3, cats=2, cheese=8),
-    dict(size=33, speed=120, theme="cellar",  loops=11, snaps=9, pits=7, saws=3, cats=3, cheese=9),
+    dict(size=33, speed=120, theme="cellar",  loops=11, snaps=9, pits=7, saws=3, cats=2, cheese=9),
 ]
 
 
@@ -250,9 +250,11 @@ def furnish(maze, start, exit_cell, plan, rng):
 
     Dvě pravidla, bez kterých se levely rozsypou:
 
-    - **Nástrahy se nesmí dotýkat.** Sklapovačka i propadlo se dají přeběhnout,
-      když se počká na správnou chvíli – ale dvě vedle sebe chtějí trefit dvě
-      chvíle naráz a v jednopolíčkové chodbě se mezi nimi nedá zastavit.
+    - **Mezi dvěma nástrahami musí zbýt aspoň dvě volné buňky** (`SPACING`).
+      Sklapovačka i propadlo se dají přeběhnout, když se počká na správnou
+      chvíli – jenže čeká se popobíháním tam a zpátky a otočka padne doprostřed
+      buňky. Se dvěma pastmi obtékajícími jedinou volnou buňku by se myš musela
+      otáčet přímo na pasti, takže by nebylo kde počkat.
     - **Na dráze pily nesmí být nic jiného.** Pila po své chodbě jezdí sem
       a tam, takže past uprostřed by z celé chodby udělala nepřekonatelnou past
       i tam, kde jinudy cesta nevede.
@@ -269,7 +271,8 @@ def furnish(maze, start, exit_cell, plan, rng):
 
     def crowded(cell):
         x, y = cell
-        return any((x + dx, y + dy) in hazards for dx in (-1, 0, 1) for dy in (-1, 0, 1))
+        near = range(-SPACING, SPACING + 1)
+        return any((x + dx, y + dy) in hazards for dx in near for dy in near)
 
     # Pily jako první – potřebují celou chodbu jen pro sebe
     saws = 0
@@ -549,6 +552,11 @@ def maze_from_rows(rows):
 # hledat cestu, ne běžet rovně ven. Když se labyrint tak dlouhou cestou nepodaří
 # postavit, generátor ho zahodí a zkusí jiný.
 MIN_RUN = 2.4
+
+# Kolik volných buněk musí zbýt mezi dvěma nástrahami. Míň než dvě znamená, že
+# se mezi nimi nedá počkat: čeká se popobíháním tam a zpátky a otočka padne
+# doprostřed buňky, takže by se myš musela otáčet přímo na pasti.
+SPACING = 2
 
 
 def build(index, plan):
