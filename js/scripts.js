@@ -31,13 +31,14 @@ const levels = [
  * otáčí jako mapa v navigaci, takže „nahoru“ na klávesnici neznamená nic –
  * smysl dává jen doleva, doprava a zpátky.
  *
- * Šipky se **drží**: dokud je klávesa dole, myš zahne v každé odbočce, která
- * se naskytne. Totéž dělá prst na kraji obrazovky a náklon telefonu (`keyT`).
+ * Šipky se **drží**: dokud je klávesa dole, labyrint se pod myší stáčí. Totéž
+ * dělá prst na kraji obrazovky a náklon telefonu (`keyT`). Mezerník (nebo prst
+ * doprostřed obrazovky) myš zastaví – jinak běží pořád vpřed.
  */
 const controls = {
     'left': ['arrowLeft', 'keyA'],
     'right': ['arrowRight', 'keyD'],
-    'back': ['space', 'arrowDown', 'keyS'],
+    'wait': ['space', 'arrowDown', 'keyS'],
     'pause': ['escape', 'keyP'],
     'restart': ['keyR'],
     'mute': ['keyM'],

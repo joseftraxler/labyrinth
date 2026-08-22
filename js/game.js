@@ -43,6 +43,7 @@ export class Game {
         this.haptics = new Haptics();
         this.tilt = new Tilt();
         this.held = null;           // zatáčení, které hráč právě drží
+        this.waiting = false;       // hráč drží „stůj“
 
         this.levelIndex = 0;
         this.score = 0;
@@ -165,14 +166,15 @@ export class Game {
 
         if (this.state !== 'playing') return;
 
-        // Otočka je jednorázová, zatáčení se drží – dokud hráč drží kraj
-        // obrazovky, šipku nebo náklon, myš zahne v každé další odbočce.
-        if (action === 'back') this.mouse.steer('back');
+        // Všechno se drží: zatáčení stáčí labyrint, dokud hráč drží, a „stůj“
+        // myš zastaví, dokud drží. Ťuknutí je jen krátké držení.
+        if (action === 'wait') this.waiting = true;
         else this.held = action;
     }
 
-    /** Puštění klávesy nebo prstu – zatáčení skončí. */
+    /** Puštění klávesy nebo prstu – zatáčení i stání skončí. */
     handleRelease(action) {
+        if (action === 'wait') this.waiting = false;
         if (this.held === action) this.held = null;
     }
 
@@ -196,7 +198,7 @@ export class Game {
 
             if (px < w * 0.3) return 'left';
             if (px > w * 0.7) return 'right';
-            return 'back';
+            return 'wait';
         };
 
         const press = (id, px, py) => {
@@ -362,9 +364,10 @@ export class Game {
         this.clock += dt;
 
         // Zatáčení se drží: klávesa, prst na kraji obrazovky nebo náklon
-        // telefonu. Dokud drží, myš zahne v každé odbočce, která se naskytne.
-        const side = this.held ?? this.tilt.read();
-        if (side) this.mouse.steer(side);
+        // telefonu. Dokud hráč drží, labyrint se pod myší stáčí; jakmile pustí,
+        // myš běží rovně dál – proto se posílá i to, že se zrovna nezatáčí.
+        this.mouse.steer(this.held ?? this.tilt.read());
+        this.mouse.brake(this.waiting);
 
         const stalled = this.mouse.stalled;
         this.mouse.speed = this.runSpeed;
@@ -382,7 +385,7 @@ export class Game {
         this.hearTraps();
         this.collectCheese();
 
-        const dist = this.level.distanceToExit(this.mouse.cx, this.mouse.cy);
+        const dist = this.level.distanceToExit(this.mouse.cellX, this.mouse.cellY);
         if (dist >= 0 && this.level.startDist > 0) {
             this.progress = Math.max(0, Math.min(1, 1 - dist / this.level.startDist));
         }
@@ -393,10 +396,7 @@ export class Game {
             return;
         }
 
-        // Buňka, kterou myš právě projíždí – ne ta, ve které je zrovna střed
-        // její kresby. Východ je poslední buňka v obvodové zdi a myš se v ní
-        // zapře do zdi, takže se počítá už vběhnutí, ne doběhnutí doprostřed.
-        if (this.level.isExit(this.mouse.cx, this.mouse.cy)) this.escaped();
+        if (this.level.isExit(this.mouse.cellX, this.mouse.cellY)) this.escaped();
     }
 
     /**
@@ -432,7 +432,7 @@ export class Game {
     }
 
     collectCheese() {
-        if (this.level.takeCheese(this.mouse.cx, this.mouse.cy)) {
+        if (this.level.takeCheese(this.mouse.cellX, this.mouse.cellY)) {
             this.cheeseTaken++;
             this.feedback('cheese');
         }
@@ -455,8 +455,8 @@ export class Game {
      * labyrint není vidět, jen kus okolo myši.
      */
     updateVisibility(force = false) {
-        const cx = this.mouse.cx;
-        const cy = this.mouse.cy;
+        const cx = this.mouse.cellX;
+        const cy = this.mouse.cellY;
         if (!force && cx === this.seenX && cy === this.seenY) return;
 
         this.seenX = cx;
@@ -1085,11 +1085,11 @@ export class Game {
                     `Level ${this.levelIndex + 1}${this.theme.name() ? ' – ' + this.theme.name() : ''}`,
                     'Myš běží sama, ty jí říkáš jen kudy.',
                     this.tilt.enabled
-                        ? 'Nakloň telefon a myš zahne v první odbočce'
-                        : 'Drž ← → nebo kraj obrazovky – zahne v každé odbočce',
+                        ? 'Nakláněním telefonu otáčíš celý labyrint'
+                        : 'Drž ← → nebo kraj obrazovky a labyrint se stáčí',
                     this.tilt.supported && !this.tilt.enabled
                         ? 'Ikonou telefonu se zapne zatáčení nakláněním'
-                        : 'Mezerník nebo střed obrazovky ji otočí zpátky',
+                        : 'Mezerníkem nebo středem obrazovky myš zastavíš',
                 ];
             case 'paused':
                 return ['Pauza', 'Pokračuj klávesou nebo ťuknutím'];

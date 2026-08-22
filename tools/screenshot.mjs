@@ -45,9 +45,9 @@ function serve() {
 }
 
 /**
- * Odehraje level pevným krokem – stejně jako playtest, jen jednodušeji: myš
- * drží nejkratší cestu k východu a nástrahám se vyhýbá jen tím, že před nimi
- * couvne. Na fotku to stačí, nemá to nikam doběhnout.
+ * Odehraje level pevným krokem – jednodušeji než playtest: myš míří na
+ * sousední buňku, která je k východu nejblíž, a nástrahy neřeší. Na fotku to
+ * stačí, nemá to nikam doběhnout.
  */
 function runInPage([levelIndex, dt, seconds]) {
     const game = window.labyrinth;
@@ -59,26 +59,27 @@ function runInPage([levelIndex, dt, seconds]) {
 
     for (let frame = 0; frame * dt < seconds; frame++) {
         const mouse = game.mouse;
-        if (mouse.stalled) {
-            game.handleAction('back');
-        } else {
-            const nx = mouse.cx + DIRS[mouse.dir][0];
-            const ny = mouse.cy + DIRS[mouse.dir][1];
+        let goal = null;
+        let closest = Infinity;
 
-            let best = mouse.dir;
-            let closest = Infinity;
-            for (let dir = 0; dir < 4; dir++) {
-                const cx = nx + DIRS[dir][0];
-                const cy = ny + DIRS[dir][1];
-                const dist = game.level.distanceToExit(cx, cy);
-                if (dist < 0 || dist >= closest) continue;
-                closest = dist;
-                best = dir;
+        for (const [dx, dy] of DIRS) {
+            const cx = mouse.cellX + dx;
+            const cy = mouse.cellY + dy;
+            const dist = game.level.distanceToExit(cx, cy);
+            if (dist < 0 || dist >= closest) continue;
+            closest = dist;
+            goal = {x: cx, y: cy};
+        }
+
+        if (goal) {
+            const want = Math.atan2(goal.y + 0.5 - mouse.y, goal.x + 0.5 - mouse.x) - mouse.heading;
+            const error = Math.atan2(Math.sin(want), Math.cos(want));
+            const side = Math.abs(error) < 0.08 ? null : (error > 0 ? 'right' : 'left');
+
+            if (game.held !== side) {
+                if (game.held) game.handleRelease(game.held);
+                if (side) game.handleAction(side);
             }
-
-            const turn = (best - mouse.dir + 4) % 4;
-            if (turn === 1) game.handleAction('right');
-            else if (turn === 3) game.handleAction('left');
         }
 
         game.update(dt);

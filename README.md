@@ -22,16 +22,21 @@ Na plánku je sever nahoře, i když se labyrint pod myší otáčí.
 
 | Co chceš | Klávesnice | Dotyk a myš | Náklon |
 | --- | --- | --- | --- |
-| zahnout doleva | držet `←` / `A` | držet levý kraj obrazovky | naklonit telefon doleva |
-| zahnout doprava | držet `→` / `D` | držet pravý kraj obrazovky | naklonit telefon doprava |
-| otočit se zpátky | `mezerník` / `↓` / `S` | střed obrazovky | – |
+| stáčet doleva | držet `←` / `A` | držet levý kraj obrazovky | naklonit telefon doleva |
+| stáčet doprava | držet `→` / `D` | držet pravý kraj obrazovky | naklonit telefon doprava |
+| zastavit a počkat | držet `mezerník` / `↓` / `S` | držet střed obrazovky | – |
 | pauza | `Esc` / `P` | horní pruh | – |
 | zkusit znovu | `R` | – | – |
 | zvuk / vibrace / náklon | `M` / `H` / `T` | ikony v pravém rohu | – |
 
-**Zatáčení se drží, neťuká.** Dokud držíš šipku, kraj obrazovky nebo naklopený
-telefon, myš zahne v každé odbočce, která se naskytne – a zatáčku projede po
-oblouku, takže se labyrint stočí přesně tak dlouho, jak dlouho zatáčka trvá.
+**Myš běží pořád rovně před sebe a ty otáčíš celý labyrint.** Dokud držíš šipku,
+kraj obrazovky nebo naklopený telefon, svět se pod myší pozvolna stáčí – nikdy
+to nikam neskočí o 90°. Když má myš proti sobě zeď, běží na místě, takže se ve
+slepé uličce dá v klidu otočit o 180°.
+
+Před cyklickou pastí se **zastavuje**: prostředek obrazovky (nebo mezerník) myš
+zabrzdí a nechá ji čichat na místě, dokud se past neotevře.
+
 Ovládání nakláněním se zapíná ikonou telefonu v pravém rohu (na iPhonu si při
 tom řekne o přístup k čidlu). Stačí mírný náklon a hra si při zapnutí zapamatuje,
 jak telefon zrovna držíš.

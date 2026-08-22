@@ -3,15 +3,16 @@ import {DIRS, angleDiff, dirAngle} from "../draw.js";
 import {TURN_RATE} from "../physics.js";
 
 /**
- * Zvíře, které běží labyrintem po ose chodby. Myš i kočka se pohybují stejně –
- * liší se jen tím, **kdo rozhoduje** v křižovatce (`chooseDir`): u myši hráč,
- * u kočky její vlastní hlava.
+ * Zvíře, které běží labyrintem po ose chodby a v křižovatce se rozhodne, kudy
+ * dál (`chooseDir`). Takhle se pohybují **nástrahy, ne myš**: kočka po mřížce
+ * hlídkuje, kdežto myš běží volně, kam ji hráč natočí (`js/entities/mouse.js`).
+ * Pro kočku je mřížka správně – hlídkovat po chodbách je přesně to, co dělá,
+ * a hráč jí do řízení nemluví.
  *
  * Dráha je uzamčená do mřížky, ale **zatáčky se projíždějí obloukem**: buňka se
  * přebíhá od hranice k hranici a při zahnutí vede cesta po čtvrtkruhu kolem
- * vnitřního rohu. Z toho plyne to hlavní – natočení je vždycky směr, kterým se
- * zvíře opravdu žene, takže se labyrint na obrazovce otáčí přesně tak dlouho,
- * jak dlouho trvá projet zatáčku. Žádné cuknutí o 90°.
+ * vnitřního rohu. Natočení je tím pádem vždycky směr, kterým se zvíře opravdu
+ * žene, takže se v zatáčce plynule stáčí místo aby cuklo o 90°.
  *
  * Stav: buňka, kterou zvíře právě projíždí (`cx`, `cy`), směr, kterým do ní
  * vběhlo (`from`), směr, kterým z ní vyběhne (`dir`), a ujetá část buňky
@@ -182,9 +183,9 @@ export class Runner extends Entity {
     }
 
     /**
-     * Pořadí, ve kterém se zkouší směry, když nikdo nic neřekl: rovně, doprava,
-     * doleva. Zpátky se nikdy samo od sebe neotáčí – to je vždycky rozhodnutí,
-     * ne setrvačnost. Vrací `null` pro slepou uličku.
+     * Pořadí, ve kterém se zkouší směry: rovně, doprava, doleva. Zpátky se
+     * zvíře samo od sebe neotáčí – to je vždycky rozhodnutí, ne setrvačnost.
+     * Vrací `null` pro slepou uličku.
      */
     followCorridor() {
         for (const turn of [0, 1, 3]) {

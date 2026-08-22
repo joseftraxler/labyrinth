@@ -15,14 +15,27 @@
 export const BASE_SPEED = 2.35;     // rychlost běhu při 100 % (buněk/s)
 
 /**
- * Jak rychle natočení dojíždí za směrem pohybu. **Zatáčení samo tímhle neřídí** –
- * myš projíždí zatáčku po oblouku (`Runner.place`), takže se labyrint otáčí
- * přesně tak dlouho, jak dlouho se zatáčka jede (asi 0,4 s). Tahle rychlost
- * dorovnává jen skoky, které oblouk nemá: otočku o 180°, kterou se čeká před
- * pastí, nebo rozjezd z místa.
+ * Jak rychle se myš otáčí, když hráč drží zatáčení (náklon, šipku, kraj
+ * obrazovky). **Tohle je celé zatáčení** – myš se nikde neotočí sama a nikam
+ * nezaskočí o 90°: labyrint se stáčí přesně tak dlouho, jak dlouho hráč drží.
+ * Čtvrtotáčka trvá kolem 0,65 s, otočka zpátky dvakrát tolik.
  */
-export const TURN_RATE = 6;         // rad/s
-export const TURN_BUFFER = 0.45;    // jak dlouho čeká požadavek na odbočku po puštění (s)
+export const TURN_RATE = 2.4;       // rad/s
+
+/**
+ * Poloměr myšího tělíčka pro kolize se zdí. Chodba je široká jednu buňku, takže
+ * z každé strany zbývá kolem dvou desetin buňky vůle – dost na to, aby se dalo
+ * chodbou běžet i s trochu nakřivo namířeným čumákem, a málo na to, aby se dalo
+ * proklouznout rohem.
+ */
+export const MOUSE_RADIUS = 0.28;
+
+/**
+ * Jak rychle myš zabrzdí a zase se rozjede (podíl rychlosti za sekundu).
+ * Zastavení je jediný způsob, jak před pastí počkat – otáčení běh nezastaví –
+ * ale nesmí to být přepínač: mezi během a stáním je krátký, čitelný okamžik.
+ */
+export const PACE_RATE = 5;
 
 export const MOUSE_HIT = 0.36;      // poloměr myši pro smrtící dotyk (buňky)
 export const SAW_HIT = 0.46;        // poloměr pily

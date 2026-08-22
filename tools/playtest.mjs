@@ -2,11 +2,11 @@
  * Automatický průchod všemi levely v opravdovém prohlížeči.
  *
  * Skript spustí hru v Chromiu a nechá labyrinty proběhnout **autopilotem**:
- * v každém rozcestí se podívá, kterým směrem je to k východu blíž, a než tam
- * pošle myš, ověří, jestli tam v tu chvíli nebude sklapnutá past, pila nebo
- * kočka. Když to nikam nejde, otočí myš zpátky a zkusí to znovu – přesně jako
- * hráč. Hraje se **skutečným kódem hry** (`Game.update`), takže test odhalí
- * jak rozbitý pohyb, tak neprůchodný level.
+ * ten drží myš namířenou na buňku, která je k východu nejblíž, a než ji tam
+ * pustí, ověří, jestli tam v tu chvíli nebude sklapnutá past, pila nebo kočka.
+ * Když ne, **zastaví a počká** (stejnou brzdou jako hráč) a vyrazí, jakmile se
+ * past otevře. Hraje se **skutečným kódem hry** (`Game.update`), takže test
+ * odhalí jak rozbitý pohyb, tak neprůchodný level.
  *
  * Autopilot je schválně hloupý: nezná budoucnost pastí dopředu ani plán
  * z generátoru. Když projde on, projde i hráč.
@@ -54,6 +54,8 @@ function serve() {
  */
 async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
     const traps = await import('./js/traps.js');
+    const {angleDiff} = await import('./js/draw.js');
+    const {TURN_RATE} = await import('./js/physics.js');
     const game = window.labyrinth;
 
     const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];
@@ -72,6 +74,11 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
     // přestane si na ni hrát a projde kolem – přesně jak by to udělal hráč.
     let bestProgress = 0;
     let stuckFor = 0;
+    const daring = () => stuckFor > 3;
+
+    // Když ani obcházení nepomůže, přestane autopilot pilám uhýbat a zkusí to.
+    // Umřít a zkusit to jinudy je pořád lepší výsledek testu než stát na místě.
+    const reckless = () => stuckFor > 12;
 
     // Kde už myš umřela. Autopilot i hra jsou deterministické, takže bez téhle
     // paměti by každý další pokus dopadl přesně stejně – takhle se místu, kde
@@ -81,8 +88,6 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
     /**
      * Buňky, kterými cesta nevede, i když jsou průchozí: chodba, ve které
      * pila jezdí sem a tam, nebo místo, kde se to už dvakrát nepovedlo.
-     * Kdyby je autopilot jen odmítal na místě, čekal by před nimi donekonečna –
-     * takhle si kolem nich rovnou spočítá cestu jinudy.
      */
     const avoid = new Set();
     let toExit = new Map();
@@ -108,10 +113,8 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
                 queue.push([nx, ny]);
             }
         }
-
     };
 
-    /** Vede od myši k východu cesta i s obcházením? */
     const routed = () => toExit.has(key(game.mouse.cellX, game.mouse.cellY));
 
     /**
@@ -127,11 +130,7 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
         return plain < 0 ? -1 : plain + 100;
     };
 
-    /**
-     * Odepíše místo, kde to nejde, a přepočítá cestu; u pily rovnou celou její
-     * chodbu. Když by se tím cesta k východu ztratila úplně, odepsání se vezme
-     * zpátky – projít tudy je pořád lepší než stát.
-     */
+    /** Odepíše místo, kde to nejde, a přepočítá cestu. U pily celou její chodbu. */
     const giveUpOn = (x, y) => {
         const added = [key(x, y)];
 
@@ -156,11 +155,6 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
     };
 
     replan();
-    const daring = () => stuckFor > 3;
-
-    // Když ani obcházení nepomůže, přestane autopilot pilám uhýbat a zkusí to.
-    // Umřít a zkusit to jinudy je pořád lepší výsledek testu než stát na místě.
-    const reckless = () => stuckFor > 12;
 
     /** Všechno, co se hýbe a zabíjí. */
     const dangers = () => [...game.saws, ...game.cats];
@@ -171,6 +165,12 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
         return far < 3 || (cat.chase > 0 && far < 7);
     });
 
+    /** Kam myš zrovna kouká, zaokrouhleno na světovou stranu. */
+    const facing = () => {
+        const quarter = Math.round(game.mouse.heading / (Math.PI / 2));
+        return ((quarter % 4) + 4) % 4;
+    };
+
     /** Co brání vběhnout do téhle buňky (`null` = nic). */
     const blocker = (x, y, dir, t) => {
         if (!safe(x, y, t)) return game.level.trapAt(x, y) ? 'trap' : 'cat';
@@ -178,16 +178,24 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
         return null;
     };
 
-    /** Je bezpečné být v téhle buňce kolem času `t`? (pasti a kočky) */
+    /**
+     * Je bezpečné být v téhle buňce kolem času `t`? (pasti a kočky)
+     */
     const safe = (x, y, t) => {
         const trap = game.level.trapAt(x, y);
-        const reach = 0.6 / game.runSpeed;
 
-        for (let i = -4; i <= 4; i++) {
-            const when = t + i * reach / 4;
-            if (when < 0) continue;
-            if (trap === 'snap' && traps.snapClosed(x, y, when)) return false;
-            if (trap === 'pit' && traps.pitOpen(x, y, when)) return false;
+        if (trap) {
+            // Musí být otevřená po celou dobu, kdy je v ní myš – s rezervou na
+            // to, že se rozjezd o kousek opozdí. Zastavit se dá kdykoliv
+            // (brzdou), takže se nemusí hlídat celý přílet.
+            const reach = 1.1 / game.runSpeed;
+            const steps = 12;
+            for (let i = 0; i <= steps; i++) {
+                const when = t - reach + 2 * reach * i / steps;
+                if (when < 0) continue;
+                if (trap === 'snap' && traps.snapClosed(x, y, when)) return false;
+                if (trap === 'pit' && traps.pitOpen(x, y, when)) return false;
+            }
         }
 
         // Kočka se předpovědět nedá – od té se drží odstup
@@ -214,8 +222,6 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
 
             const when = t + k / game.runSpeed;
             for (const saw of game.saws) {
-                // Myš a pila se k sobě blíží až osmi buňkami za vteřinu, takže
-                // se vzorkuje hustě – jinak by se minutí prosmýklo mezi vzorky
                 for (let i = -2; i <= 3; i++) {
                     const at = saw.positionAt(when + i * 0.05);
                     if (Math.hypot(at.x - cx - 0.5, at.y - cy - 0.5) < 1.0) return false;
@@ -223,53 +229,10 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
             }
 
             // Za odbočkou se rozhoduje znovu, takže dál dopředu se dívat nemá
-            // smysl – ale první tři buňky se prohlédnou vždycky, jinak by se do
-            // chodby s pilou vbíhalo přes křižovatku poslepu.
+            // smysl – ale první tři buňky se prohlédnou vždycky.
             if (k > 2 && game.level.exits(cx, cy) > 2) break;
         }
         return true;
-    };
-
-    /** Jak daleko je nejbližší hrozba v daném směru od myši (Infinity = žádná). */
-    const threatIn = dir => {
-        const mouse = game.mouse;
-        const step = DIRS[dir];
-        let closest = Infinity;
-
-        for (const danger of dangers()) {
-            const dx = danger.x - mouse.x;
-            const dy = danger.y - mouse.y;
-            const along = dx * step[0] + dy * step[1];
-            const aside = Math.abs(dx * step[1] - dy * step[0]);
-            if (along > 0 && aside < 0.7) closest = Math.min(closest, along);
-        }
-        return closest;
-    };
-
-    /**
-     * Otočka má smysl, jen když za zády nic nečíhá – jinak myš vběhne do klína.
-     * Nesmí ani vycouvat do sklapnuté pasti: couvá se okamžitě, takže se to
-     * musí ohlídat tady, ne až v `choose`.
-     */
-    const canReverse = (urgent = false) => {
-        const mouse = game.mouse;
-        if (threatIn(back(mouse.dir)) <= 3) return false;
-
-        const bx = mouse.cx - DIRS[mouse.from][0];
-        const by = mouse.cy - DIRS[mouse.from][1];
-        if (!game.level.isFree(bx, by)) return true;
-
-        // Když je pila na dosah, je past za zády pořád lepší volba: do pily se
-        // vbíhá jistě, past má aspoň chvíli, kdy je natažená. Jinak musí být
-        // buňka za zády bezpečná po celou dobu popoběhnutí tam a zpátky –
-        // čekat se dá jenom na místě, kde pod myší nic nesklapne.
-        if (!urgent) {
-            for (let i = 0; i <= 5; i++) {
-                if (!safe(bx, by, game.clock + i * 0.12)) return false;
-            }
-        }
-
-        return hasWayOut(bx, by, back(mouse.from));
     };
 
     /**
@@ -282,11 +245,9 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
         let cy = y;
         let heading = dir;
 
-        // Chodbou se jde i za roh, takže se únik hledá po ní, ne po přímce –
-        // jinak by autopilot považoval každou zatáčku za slepou uličku.
         for (let k = 0; k < 9; k++) {
             if (!game.level.isFree(cx, cy)) return false;
-            if (game.level.isExit(cx, cy)) return true;   // ven je ta nejlepší cesta ven
+            if (game.level.isExit(cx, cy)) return true;
 
             const ways = game.level.exits(cx, cy);
             if (ways > 2) return true;
@@ -309,64 +270,88 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
         return true;
     };
 
+    /** Jak daleko je nejbližší hrozba přímo před myší (Infinity = žádná). */
+    const threatAhead = () => {
+        const mouse = game.mouse;
+        const ax = Math.cos(mouse.heading);
+        const ay = Math.sin(mouse.heading);
+        let closest = Infinity;
+
+        for (const danger of dangers()) {
+            const dx = danger.x - mouse.x;
+            const dy = danger.y - mouse.y;
+            const along = dx * ax + dy * ay;
+            const aside = Math.abs(dy * ax - dx * ay);
+            if (along > 0 && aside < 0.7) closest = Math.min(closest, along);
+        }
+        return closest;
+    };
+
     /**
-     * Kterým směrem z buňky dál. Autopilot drží nejkratší cestu k východu
-     * a **před zavřenou pastí radši čeká, než aby ji objížděl**: popoběhne
-     * o buňku zpátky a vrátí se – tím se posune do jiné chvíle a past ho pustí.
-     * Objížďka se hledá jen před kočkou, protože ta se sama pohne a čekat na ni
-     * nemá smysl.
+     * Kam zamířit. Autopilot drží nejkratší cestu k východu a **před zavřenou
+     * pastí radši počká** – otočí se čelem do zdi, kde myš běží na místě, a jde
+     * dál, až se past otevře. Objížďka se hledá jen před kočkou, protože ta se
+     * sama pohne a čekat na ni nemá smysl.
      */
-    const choose = (x, y, incoming, arrival) => {
-        const reversing = back(incoming);
-        const behind = !canReverse();
-        const when = arrival + 1 / game.runSpeed;
+    const chooseGoal = () => {
+        const mouse = game.mouse;
+        const x = mouse.cellX;
+        const y = mouse.cellY;
+        const incoming = facing();
         const options = [];
 
         for (let dir = 0; dir < 4; dir++) {
             const nx = x + DIRS[dir][0];
             const ny = y + DIRS[dir][1];
             if (!game.level.isFree(nx, ny)) continue;
-            if (dir === reversing && behind) continue;
 
             const dist = distanceOut(nx, ny);
             if (dist < 0) continue;
 
-            // Otočka stojí zhruba buňku cesty; místo, kde už myš umřela, stojí
-            // podstatně víc – hra i autopilot jsou deterministické, takže bez
-            // téhle přirážky by každý další pokus dopadl stejně.
-            const cost = dist
-                + (dir === reversing ? 1.5 : 0)
-                + 8 * (graves.get(`${nx},${ny}`) ?? 0);
-            options.push({dir, cost, nx, ny, blocker: blocker(nx, ny, dir, when)});
+            // Otáčení něco stojí, a otočka o 180° hodně: než se myš stočí,
+            // ujede kus chodby a v úzké chodbě se přitom otře o sousední buňky.
+            const turn = Math.abs(angleDiff(mouse.heading, Math.atan2(DIRS[dir][1], DIRS[dir][0])));
+            const when = game.clock + turn / TURN_RATE
+                + Math.hypot(nx + 0.5 - mouse.x, ny + 0.5 - mouse.y) / game.runSpeed;
+
+            let cost = dist + turn * 0.7 + (turn > 2.5 ? 1.5 : 0) + 8 * (graves.get(key(nx, ny)) ?? 0);
+            if (!daring()) {
+                for (const cat of game.cats) {
+                    const far = Math.hypot(cat.x - nx - 0.5, cat.y - ny - 0.5);
+                    if (far < 3) cost += (3 - far) * 1.5;
+                    if (far < 12 && !hasWayOut(nx, ny, dir)) cost += 15;
+                }
+            }
+
+            options.push({dir, x: nx, y: ny, cost, blocker: blocker(nx, ny, dir, when)});
         }
 
-        if (!options.length) return behind ? incoming : reversing;
+        if (!options.length) return null;
         options.sort((a, b) => a.cost - b.cost);
 
-        if (!options[0].blocker) return options[0].dir;
+        if (!options[0].blocker) return options[0];
 
-        // Past se za chvíli natáhne, takže se před ní čeká. Pilu jde přečkat
-        // taky – ale ne vždycky: myš je rychlejší než ona, takže ji v chodbě
-        // dojede zezadu, a chodbu, kterou pila projíždí celou, se prostě musí
-        // obejít. Proto se čeká jen chvíli a pak se hledá objížďka.
-        if (!behind && !hunted() &&
-            (options[0].blocker === 'trap' || (options[0].blocker === 'saw' && !daring()))) {
-            return reversing;
+        // Past se za chvíli natáhne, takže se před ní **počká** – myš zastaví
+        // a zůstane na ni namířená, aby mohla vyrazit hned, jak se otevře.
+        // Pilu jde přečkat taky, ale ne vždycky: v chodbě, kterou projíždí
+        // celou, ji myš stejně dojede, takže se po chvíli hledá objížďka.
+        if (!hunted() && (options[0].blocker === 'trap' || (options[0].blocker === 'saw' && !daring()))) {
+            return options[0];
         }
 
-        const open = options.find(o => !o.blocker);
-        return open ? open.dir : (behind ? incoming : reversing);
+        return options.find(o => !o.blocker) ?? options[0];
+    };
+
+    /** Zastavení se drží stejně jako zatáčení – tak ať se to nezapomene pustit. */
+    const brake = on => {
+        if (on === game.waiting) return;
+        if (on) game.handleAction('wait');
+        else game.handleRelease('wait');
     };
 
     /**
-     * Otočka je okamžitá, takže ji nesmí autopilot poslat dvakrát po sobě –
-     * to by myš na místě jen kmitala a nikdy by z buňky nevyjela. Mezi dvěma
-     * otočkami proto musí uběhnout aspoň kousek chodby.
-     */
-    /**
      * Zatáčení se ve hře **drží** (klávesa, prst, náklon), takže ho autopilot
-     * musí umět i pustit – jinak by myš zahýbala dál i potom, co už dávno chce
-     * jet rovně.
+     * musí umět i pustit – jinak by se myš točila pořád dokola.
      */
     const hold = side => {
         if (game.held === side) return;
@@ -374,62 +359,98 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
         if (side) game.handleAction(side);
     };
 
-    let lastTurnBack = -1;
-    const turnBack = (urgent = false) => {
-        // Otočka na záchranu života smí přijít kdykoliv – ale jen když myš mezi
-        // dvěma otočkami kus popoběhla. Jinak by se dvě nástrahy proti sobě
-        // přetahovaly o myš, která by mezi nimi kmitala na místě.
-        const moved = game.mouse.off > 0.25;
-        if (!(urgent && moved) && game.clock - lastTurnBack < 0.3) return;
+    /** Zamíří čumákem na střed dané buňky. */
+    const aimAt = target => {
+        const mouse = game.mouse;
+        const want = Math.atan2(target.y + 0.5 - mouse.y, target.x + 0.5 - mouse.x);
+        const error = angleDiff(mouse.heading, want);
 
-        lastTurnBack = game.clock;
-        hold(null);
-        game.handleAction('back');
+        if (Math.abs(error) < 0.06) hold(null);
+        else hold(error > 0 ? 'right' : 'left');
+    };
+
+    /**
+     * Rozhodnutí se drží aspoň chvilku. Otáčení je pozvolné, takže než se myš
+     * stihne otočit k novému cíli, uběhne kus času – a kdyby autopilot měnil
+     * názor každý snímek, jen by se na místě kýval.
+     */
+    let decision = null;
+    let decidedAt = -1;
+    let decidedIn = null;
+
+    /** Je v téhle buňce zrovna teď (nebo za okamžik) smrt? */
+    const deadlyNow = (x, y) => {
+        const trap = game.level.trapAt(x, y);
+        if (!trap) return false;
+
+        for (let i = 0; i <= 4; i++) {
+            const when = game.clock + i * 0.08;
+            if (trap === 'snap' && traps.snapClosed(x, y, when)) return true;
+            if (trap === 'pit' && traps.pitOpen(x, y, when)) return true;
+        }
+        return false;
     };
 
     const steer = () => {
         const mouse = game.mouse;
-        if (mouse.stalled) {
-            turnBack();
+        const here = key(mouse.cellX, mouse.cellY);
+
+        // Myš se otáčí pozvolna, takže se do vedlejší buňky umí zanést i tam,
+        // kam vůbec nemířila – zvlášť při otočce v úzké chodbě. Když je v ní
+        // zrovna sklapnuto, je to přednější než jakýkoliv plán: zastav a uhni.
+        const touched = [];
+        for (const dx of [-0.45, 0.45]) {
+            for (const dy of [-0.45, 0.45]) {
+                const tx = Math.floor(mouse.x + dx + Math.cos(mouse.heading) * 0.3);
+                const ty = Math.floor(mouse.y + dy + Math.sin(mouse.heading) * 0.3);
+                if (tx === mouse.cellX && ty === mouse.cellY) continue;
+                if (touched.some(t => t.x === tx && t.y === ty)) continue;
+                touched.push({x: tx, y: ty});
+            }
+        }
+
+        const live = touched.find(t => deadlyNow(t.x, t.y));
+        if (live) {
+            decision = null;
+            brake(true);
+            aimAt({x: mouse.cellX * 2 - live.x, y: mouse.cellY * 2 - live.y});
             return;
         }
+
+        // Kam se míří, se drží chvíli (jinak by se myš na místě kývala), ale
+        // jestli se smí jet, se počítá **každý snímek**: past se otevře na
+        // vteřinu a půl a na zastaralé rozhodnutí se ta chvíle prošvihne.
+        if (decidedIn !== here || game.clock - decidedAt > 0.4) {
+            decision = plan();
+            decidedAt = game.clock;
+            decidedIn = here;
+        }
+
+        if (!decision) {
+            brake(true);
+            hold(null);
+            return;
+        }
+
+        // Před zavřenou pastí se stojí a čeká, ale čumák zůstane namířený –
+        // jakmile se otevře, stačí se rozeběhnout.
+        const when = game.clock
+            + Math.hypot(decision.x + 0.5 - mouse.x, decision.y + 0.5 - mouse.y) / game.runSpeed;
+        brake(!!blocker(decision.x, decision.y, decision.dir ?? facing(), when));
+        aimAt(decision);
+    };
+
+    /** Kam teď zamířit: pryč od hrozby, na cestu k východu, nebo do zdi čekat. */
+    const plan = () => {
+        const mouse = game.mouse;
 
         // Před pilou ani kočkou se nečeká – od těch se utíká, myš je rychlejší
-        const threat = threatIn(mouse.dir);
-        if (threat < 2.8 && canReverse(threat < 2.0)) {
-            turnBack(true);
-            return;
+        if (threatAhead() < 2.8) {
+            const away = {x: mouse.cellX - DIRS[facing()][0], y: mouse.cellY - DIRS[facing()][1]};
+            if (game.level.isFree(away.x, away.y) && hasWayOut(away.x, away.y, back(facing()))) return away;
         }
 
-        // Otočka jde kdykoliv – myš se vrátí po svém oblouku, takže se čeká
-        // před pastí popobíháním tam a zpátky, ne stáním na místě
-        const now = choose(mouse.cx, mouse.cy, mouse.from, game.clock);
-        if (now === back(mouse.dir)) {
-            turnBack();
-            return;
-        }
-
-        const nx = mouse.cx + DIRS[mouse.dir][0];
-        const ny = mouse.cy + DIRS[mouse.dir][1];
-        // Buňka se přebíhá od hranice k hranici, takže doprostřed té další je
-        // to o půl buňky dál, než kolik zbývá do konce téhle
-        const arrival = game.clock + (1.5 - mouse.off) / game.runSpeed;
-
-        // Buňka, do které se myš právě řítí, se mezitím mohla stát pastí –
-        // otočka je okamžitá, takže se z ní dá vycouvat i mimo střed
-        // Tahle otočka zachraňuje život, takže se na klid mezi otočkami nehledí
-        if (!safe(nx, ny, arrival) && canReverse()) {
-            turnBack(true);
-            return;
-        }
-
-        // Zatáčka se hlásí dopředu – myš si ji podrží do příští křižovatky
-        const want = choose(nx, ny, mouse.dir, arrival);
-        const turn = (want - mouse.dir + 4) % 4;
-
-        if (turn === 1) hold('right');
-        else if (turn === 3) hold('left');
-        else hold(null);            // rovně: pustit dřív ohlášenou zatáčku
+        return chooseGoal();
     };
 
     const samples = [];
@@ -442,26 +463,20 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
 
         if (trace && frame % Math.round(0.1 / dt) === 0) {
             const mouse = game.mouse;
-            const ax = mouse.cx + DIRS[mouse.dir][0];
-            const ay = mouse.cy + DIRS[mouse.dir][1];
-            // Buňka se přebíhá od hranice k hranici, takže doprostřed té další je
-        // to o půl buňky dál, než kolik zbývá do konce téhle
-        const arrival = game.clock + (1.5 - mouse.off) / game.runSpeed;
-            const options = [0, 1, 2, 3]
-                .filter(d => game.level.isFree(mouse.cx + DIRS[d][0], mouse.cy + DIRS[d][1]))
-                .map(d => `${d}:${distanceOut(mouse.cx + DIRS[d][0], mouse.cy + DIRS[d][1])}` +
-                    `${blocker(mouse.cx + DIRS[d][0], mouse.cy + DIRS[d][1], d, game.clock + 1 / game.runSpeed) ?? ''}`)
-                .join(' ');
-            recent.push(`${elapsed.toFixed(1)}s buňka ${mouse.cx},${mouse.cy} [${options}] stuck=${stuckFor.toFixed(1)}` +
-                ` myš ${mouse.x.toFixed(1)},${mouse.y.toFixed(1)} dir${mouse.dir}` +
-                ` off=${mouse.off.toFixed(2)} vpřed ${ax},${ay} (${game.level.trapAt(ax, ay) ?? '-'})` +
-                ` bezpečno=${safe(ax, ay, arrival)} příjezd=${arrival.toFixed(2)}` +
-                ` hrozba ${threatIn(mouse.dir).toFixed(1)} couvnout=${canReverse(true)}`);
+            const cell = `${mouse.cellX},${mouse.cellY}`;
+            const trap = game.level.trapAt(mouse.cellX, mouse.cellY);
+            const shut = trap === 'snap' ? traps.snapClosed(mouse.cellX, mouse.cellY, game.clock)
+                : trap === 'pit' ? traps.pitOpen(mouse.cellX, mouse.cellY, game.clock) : false;
+            recent.push(`${elapsed.toFixed(1)}s myš ${mouse.x.toFixed(2)},${mouse.y.toFixed(2)} (${cell}` +
+                `${trap ? ' ' + trap + (shut ? ' ZAVŘENO' : ' otevřeno') : ''})` +
+                ` směr ${(mouse.heading * 57.3).toFixed(0)}°${mouse.stalled ? ' stojí' : ''}` +
+                `${game.waiting ? ' čeká' : ''}` +
+                ` cíl ${decision ? `${decision.x},${decision.y}` : '-'} drží ${game.held ?? '-'}`);
             if (recent.length > 25) recent.shift();
         }
         if (trace && frame % Math.round(0.5 / dt) === 0) {
             const mouse = game.mouse;
-            samples.push(`${elapsed.toFixed(1)}s ${mouse.cellX},${mouse.cellY} dir${mouse.dir}` +
+            samples.push(`${elapsed.toFixed(1)}s ${mouse.cellX},${mouse.cellY}` +
                 `${mouse.stalled ? ' stojí' : ''} k východu ${game.level.distanceToExit(mouse.cellX, mouse.cellY)}`);
         }
 
@@ -473,9 +488,9 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
         }
 
         // Pořád dokola před tímtéž místem? Tak tudy cesta nevede.
-        if (stuckFor > 5) {
+        if (stuckFor > 8) {
             const mouse = game.mouse;
-            giveUpOn(mouse.cx + DIRS[mouse.dir][0], mouse.cy + DIRS[mouse.dir][1]);
+            giveUpOn(mouse.cellX + DIRS[facing()][0], mouse.cellY + DIRS[facing()][1]);
             stuckFor = 0;
         }
 
@@ -487,9 +502,10 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
             bestProgress = 0;
             stuckFor = 0;
 
-            const grave = `${game.mouse.cellX},${game.mouse.cellY}`;
+            const grave = key(game.mouse.cellX, game.mouse.cellY);
             graves.set(grave, (graves.get(grave) ?? 0) + 1);
             if (graves.get(grave) >= 2) giveUpOn(game.mouse.cellX, game.mouse.cellY);
+
             if (deaths > maxDeaths) {
                 const mouse = game.mouse;
                 const near = dangers()
@@ -497,12 +513,12 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
                     .join(' | ');
                 return {
                     ok: false,
-                    why: `zemřela ${deaths}× (naposledy: ${game.cause} v ${mouse.cellX},${mouse.cellY}` +
-                        `, směr ${mouse.dir}; ${near})`,
+                    why: `zemřela ${deaths}× (naposledy: ${game.cause} v ${mouse.cellX},${mouse.cellY}; ${near})`,
                     deaths,
                     samples: [...samples, '--- poslední dvě vteřiny ---', ...recent],
                 };
             }
+
             game.retry();
             replan();
         }

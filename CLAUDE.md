@@ -99,12 +99,11 @@ Z toho plynou dvě pravidla:
   `Game.drawFog` a `Theme.drawAir` běží až po `ctx.restore()`, bez otáčení – je
   to světlo, které myš nese s sebou, ne kus mapy.
 
-Natočení **není samostatná animace** – je to směr, kterým myš zrovna běží. Aby
-se labyrint otáčel pozvolna, projíždí myš zatáčku po oblouku (`Runner.place`),
-takže otáčení trvá přesně tak dlouho, jak dlouho trvá zatáčku projet (asi 0,4 s
-při základní rychlosti). Kdo chce otáčení ještě pozvolnější, musí zpomalit běh
-(`BASE_SPEED`), ne přidávat další vyhlazení. `TURN_RATE` dorovnává jen skoky,
-které oblouk nemá – otočku o 180° a rozjezd z místa.
+**Otáčí hráč, ne hra.** Natočení myši se mění jen tím, že hráč drží zatáčení
+(náklon telefonu, šipku, kraj obrazovky) – rychlostí `TURN_RATE`, tedy
+čtvrtotáčka kolem 0,65 s. Myš se nikde neotočí sama a nikdy nikam neskočí
+o 90°; labyrint se stáčí přesně tak dlouho, jak dlouho hráč drží. Kdo chce
+otáčení ještě pozvolnější, sníží `TURN_RATE`.
 
 ## Minimapa: jediné místo, které se neotáčí
 
@@ -149,26 +148,25 @@ Hra běží na telefonech, takže **na snímek je rozpočet pár milisekund**:
 ## Ovládání
 
 Klávesy, dotyk, myš i náklon telefonu vedou do jedné metody
-`Game.handleAction(action)` (action = `left`/`right`/`back`/`pause`/`restart`/
+`Game.handleAction(action)` (action = `left`/`right`/`wait`/`pause`/`restart`/
 `mute`/`haptics`/`tilt`), puštění do `Game.handleRelease(action)`. Nové vstupy
 směruj taky tam, ať se logika neduplikuje.
 
 **Zatáčení je relativní k myši, ne ke světové straně.** Labyrint se pod ní
 otáčí, takže „nahoru“ nedává smysl; smysl dává doleva, doprava a zpátky.
 
-**Zatáčení se drží, neťuká.** `Game.held` si pamatuje, co hráč drží, a každý
-snímek to připomene myši (`Game.update`). Ťuknutí je jen krátké držení – po
-puštění ještě `TURN_BUFFER` sekund platí. Otočka zpátky je proti tomu
-jednorázová akce.
+**Všechno se drží, neťuká.** `Game.held` si pamatuje zatáčení a `Game.waiting`
+zastavení; každý snímek se obojí předá myši (`Game.update`). Ťuknutí je jen
+krátké držení. Otočka o 180° není zvláštní akce – prostě se drží zatáčení dýl.
 
 Tři vstupy, jedna cesta:
 
 - **Klávesnice** – `input.js` mapuje `keydown` i `keyup`.
 - **Dotyk a myš** (`Game.bindPointer`) – horní pruh jsou přepínače (jejich
   pořadí drží `Game.toggles()`, takže ikona sedí do pruhu, do kterého se ťuká),
-  zbytek plochy je rozdělený na tři svislé pásy: krajních 30 % zatáčí (drží se),
-  prostředek otočí myš zpátky. Držení se hlídá po jednotlivých prstech, takže
-  puštění jednoho prstu nezruší zatáčení druhým.
+  zbytek plochy je rozdělený na tři svislé pásy: krajních 30 % zatáčí,
+  prostředek zastaví. Obojí se drží. Držení se hlídá po jednotlivých prstech,
+  takže puštění jednoho prstu nezruší zatáčení druhým.
 - **Náklon telefonu** (`js/tilt.js`) – náklon doleva a doprava zatáčí, drží se
   stejně jako klávesa. Tři věci, bez kterých by to nefungovalo: čidlo se pozná
   až podle první události (na desktopu `DeviceOrientationEvent` existuje, ale
@@ -185,40 +183,33 @@ a zkracuje po stupních**: nejdřív zmizí počet pokusů, pak stav sýra.
 
 ## Pohybový model
 
-Myš běží sama po ose chodby a **rozhoduje se při vstupu do buňky**
-(`Runner.step`). Stav je buňka, kterou právě projíždí (`cx`, `cy`), směr, kterým
-do ní vběhla (`from`), směr, kterým z ní vyběhne (`dir`), a ujetá část buňky
-(`off` v rozsahu 0–1, 0 na vstupní hranici, 1 na výstupní). Poloha `x`, `y` se
-z toho počítá, ne naopak.
+**Myš běží pořád rovně před sebe** (`js/entities/mouse.js`) a hráč jí jen otáčí.
+Poloha je spojitá, ne po buňkách: `x`, `y` a `heading`. Není v tom žádné
+automatické zatáčení ani přichytávání k ose chodby – to, kam myš míří, je
+výhradně součet toho, co hráč nadržel.
 
-**Zatáčka se projíždí po oblouku** – čtvrtkruh o poloměru půl buňky kolem
-vnitřního rohu, který začíná i končí uprostřed hranice buňky, takže se do
-jednopolíčkové chodby vejde s rezervou. Z toho plyne to hlavní: natočení je
-vždycky opravdový směr pohybu, takže se labyrint otáčí přesně tak dlouho, jak
-dlouho se zatáčka jede. Rozhodnutí proto musí padnout **na hranici buňky**, ne
-uprostřed – jinak by nebylo kdy oblouk začít.
-
-Přeběh buňky trvá vždycky `1 / rychlost` bez ohledu na to, jestli vede rovně
-nebo do zatáčky (oblouk je o pětinu kratší, takže myš v zatáčce trochu zpomalí).
-Díky tomu si čas ve hře odpovídá s tím, co počítá generátor.
-
-- **Rovně, doprava, doleva** (`Runner.followCorridor`) – v tomhle pořadí se
-  hledá cesta, když hráč nic neřekl. Zatáčky v chodbě tedy myš projede sama
-  a hráč rozhoduje jen na křižovatkách; když nikam nemůže, zastaví (`stalled`),
-  dojede doprostřed buňky, zapře se do zdi a čeká, až ji někdo otočí.
-- **Zatáčení se drží.** Dokud hráč drží šipku, prst na kraji obrazovky nebo
-  náklon telefonu, myš zahne v každé odbočce, která se naskytne. Po puštění
-  ještě `TURN_BUFFER` sekund platí – aby stačilo ťuknout těsně před křižovatkou.
-- **Otočka (`back`) je okamžitá** a nečeká na hranici buňky – myš se vrátí po
-  svém vlastním oblouku (`Runner.reverse` jen prohodí vstupní a výstupní
-  hranici). Je to zároveň jediný způsob, jak počkat před pastí: myš popoběhne
-  zpátky a vrátí se v jinou chvíli.
-- Zeď **nezabíjí**. Myš není kostka z cube-runneru; do zdi se jen zapře.
+- **Do zdi se myš zapře a běží na místě** (`stalled`). Náraz nezabíjí; je to
+  normální stav a hlásí ho zvuk i vibrace.
+- **Šikmý dotyk stěnu obklouzne.** Osy se v `#run` řeší zvlášť, takže myš
+  mířící šikmo do stěny sklouzne podél ní a zastaví se až tam, kde je zeď
+  opravdu proti ní. Bez toho by se hráč musel trefovat do osy chodby na
+  desetiny stupně; s tím stačí držet směr zhruba.
+- **Otáčení jde i na místě**, takže se ve slepé uličce dá v klidu otočit
+  o 180° – zastavená myš se otáčí stejně rychle jako běžící.
+- **Brzda je jediný způsob, jak počkat.** `Mouse.brake` stáhne rozjezd
+  (`pace`) k nule a zase zpátky rychlostí `PACE_RATE`; drží se stejně jako
+  zatáčení. Bez ní by se před cyklickou pastí nedalo zastavit: otočit se do zdi
+  trvá skoro vteřinu a v tu chvíli už je myš v pasti.
+- Poloměr tělíčka pro kolize je `MOUSE_RADIUS` (menší než půl buňky, takže
+  v jednopolíčkové chodbě zbývá vůle na obě strany).
 
 **Běh je schválně pomalý** (`BASE_SPEED`, rychlost levelů roste jen ze 100 na
-120 %). Tohle není hra na rychlost, ale na vyznání se v labyrintu: myš musí
-stihnout přečíst chodbu dřív, než do ní vběhne. Kdo chce přitvrdit, ať přidá
-na spletitosti mapy (`MIN_RUN`, míň smyček), ne na rychlosti.
+120 %). Tohle není hra na rychlost, ale na vyznání se v labyrintu. Kdo chce
+přitvrdit, ať přidá na spletitosti mapy (`MIN_RUN`, míň smyček), ne na rychlosti.
+
+Kočka se pohybuje jinak: po mřížce, se zatáčkami po oblouku
+(`js/entities/runner.js`). Hlídkovat po chodbách je přesně to, co dělá, a nikdo
+jí do řízení nemluví – volný pohyb by jí byl k ničemu.
 
 Konstanty jsou v `js/physics.js` a časování pastí v `js/traps.js`. **Když je
 změníš, přegeneruj a přeověř úrovně** – `tools/gen_mazes.py` má vlastní kopii
@@ -295,9 +286,13 @@ Pravidla rozmístění, bez kterých se levely rozsypou (`furnish`):
 
 Ověření (`find_path`) hledá posloupnost přeběhů **po vrstvách času**: přeběh
 mezi sousedními buňkami trvá vždycky stejně, takže je čas ve vrstvě přesně daný.
-Myš se může kdykoliv otočit, takže „čekání“ před pastí je v grafu obyčejné
-popobíhání tam a zpátky a nemusí se modelovat zvlášť. Když level neprojde,
-skript skončí chybou a nic nezapíše.
+Když level neprojde, skript skončí chybou a nic nezapíše.
+
+Od volného pohybu je tenhle model jen **přibližný, ale na správnou stranu**:
+myš po mřížce nejede, takže je ve skutečnosti pomalejší (otáčení a klouzání po
+zdi něco stojí), zato umí zastavit a počkat, což mřížkový model neumí. Cesta,
+kterou generátor najde, se tedy dá odjet i pozdějším cyklem pasti – pasti se
+opakují. Poslední slovo má stejně `playtest.mjs`, který hraje opravdovou hru.
 
 **Kočky se neověřují**: reagují na hráče, takže by výsledek stejně neplatil.
 Férové je to i bez toho, protože kočka je pomalejší a myš ji uvidí dřív.
@@ -308,9 +303,12 @@ Takový level pak neodpovídá plánu – ověřuj ho přes
 `python3 tools/gen_mazes.py --verify js/levels/levelX.js`.
 
 `tools/playtest.mjs` totéž ověří proti opravdovému kódu hry: pustí hru
-v Chromiu a **odehraje ji autopilotem** – ten drží nejkratší cestu k východu,
-před zavřenou pastí radši počká (popoběhne zpátky a vrátí se), pile a kočce
-uhne a chodbu, kudy to nejde, si odepíše a spočítá cestu jinudy. Nekouká
+v Chromiu a **odehraje ji autopilotem** – ten drží myš namířenou na buňku, která
+je k východu nejblíž, před zavřenou pastí zastaví a počká (stejnou brzdou jako
+hráč), pile a kočce uhne a chodbu, kudy to nejde, si odepíše a spočítá cestu
+jinudy. Kam mířit, se drží zlomek vteřiny, ale **jestli se smí jet, se počítá
+každý snímek**: past je otevřená sotva vteřinu a půl a na zastaralé rozhodnutí
+se ta chvíle prošvihne. Nekouká
 generátoru do karet: kdyby hra a simulace přestaly sedět, playtest to pozná.
 Protože je hra i autopilot deterministický, pamatuje si autopilot ještě místa,
 kde umřel – jinak by každý další pokus dopadl přesně stejně.

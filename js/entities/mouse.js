@@ -1,66 +1,140 @@
-import {Runner} from "./runner.js";
-import {TAU} from "../draw.js";
-import {TURN_BUFFER} from "../physics.js";
+import {Entity} from "./entity.js";
+import {DIRS, TAU, dirAngle} from "../draw.js";
+import {MOUSE_RADIUS, PACE_RATE, TURN_RATE} from "../physics.js";
 
 /**
- * Bílá myš, kterou hráč řídí. Běží sama a hráč jí říká jen **vlevo / vpravo /
- * zpátky** – v otáčejícím se labyrintu je to jediné, co dává smysl: sever se
- * pod myší pořád stáčí, ale „doleva“ znamená doleva vždycky.
+ * Bílá myš, kterou hráč řídí. **Běží pořád rovně před sebe** a hráč jí jen
+ * otáčí – nakloněním telefonu, drženou šipkou nebo prstem na kraji obrazovky.
+ * Otáčení je plynulé (`TURN_RATE`), takže se labyrint stáčí přesně tak dlouho,
+ * jak dlouho hráč drží; myš se nikde neotočí sama.
  *
- * Požadavek na zatáčku se pamatuje `TURN_BUFFER` sekund. Bez toho by se musel
- * trefit přesně do křižovatky; s ním stačí říct „vlevo“ o kousek dřív a myš
- * zahne v první odbočce, která se naskytne. Otočka je naopak okamžitá –
- * v slepé uličce není na co čekat.
+ * Když má před sebou zeď, **běží na místě**. Je to tím pádem taky jediný způsob,
+ * jak počkat před pastí – a ve slepé uličce se dá v klidu otočit o 180°, protože
+ * otáčení na běhu nezávisí.
+ *
+ * Do zdi se myš jen zapře: náraz nezabíjí. Šikmý dotyk stěnu obklouzne, takže
+ * se chodbou dá běžet i s čumákem trochu mimo osu – jinak by se hráč musel
+ * trefovat do osy chodby na desetiny stupně.
  *
  * Myš o hře nic neví: nesbírá sýr, neumírá ani nekončí level. Jen běží a hlásí
- * `stalled`, když stojí čelem u zdi. Co to znamená, rozhoduje `Game`.
+ * `stalled`, když se nehne z místa. Co to znamená, rozhoduje `Game`.
  */
-export class Mouse extends Runner {
+export class Mouse extends Entity {
     reset() {
-        this.pending = null;      // 'left' | 'right'
-        this.pendingAge = 0;
         super.reset();
+
+        this.heading = dirAngle(this.firstWayOut());
+        this.turning = 0;        // -1 doleva, +1 doprava, 0 rovně
+        this.braking = false;    // hráč drží „stůj“
+        this.pace = 1;           // rozjetost 0–1, brzda ji stahuje k nule
+        this.speed = 0;
+        this.stalled = false;    // zapřená do zdi
     }
 
-    /** Pokyn od hráče (klávesa, dotyk i myš vedou sem přes `Game.handleAction`). */
-    steer(side) {
-        if (side === 'back') {
-            this.reverse();
-            return;
+    /**
+     * Kterým směrem z doupěte vede chodba – ať hra nezačíná čelem do zdi.
+     * Metoda je schválně veřejná: volá se z `reset()`, tedy ještě z konstruktoru
+     * předka, kde soukromé metody podtřídy neexistují.
+     */
+    firstWayOut() {
+        for (let dir = 0; dir < 4; dir++) {
+            const d = DIRS[dir];
+            if (this.game.level.isFree(this.spawnX + d.x, this.spawnY + d.y)) return dir;
         }
-        this.pending = side;
-        this.pendingAge = 0;
+        return 0;
+    }
+
+    /** Pokyn od hráče: `left`/`right` se **drží** – otáčí, dokud hráč nepustí. */
+    steer(side) {
+        this.turning = side === 'left' ? -1 : side === 'right' ? 1 : 0;
+    }
+
+    /**
+     * Zastavení. Myš se zapře a čichá na místě, dokud hráč drží – je to jediný
+     * způsob, jak počkat před pastí, protože otáčení běh nezastaví. Rozjezd
+     * i zastavení chvilku trvají (`PACE_RATE`), takže to není přepínač, ale
+     * zabrždění.
+     */
+    brake(on) {
+        this.braking = on;
     }
 
     step(dt) {
-        if (this.pending) {
-            this.pendingAge += dt;
-            if (this.pendingAge > TURN_BUFFER) this.pending = null;
-        }
         super.step(dt);
+
+        const want = this.braking ? 0 : 1;
+        const change = PACE_RATE * dt;
+        this.pace += Math.max(-change, Math.min(change, want - this.pace));
+
+        this.#turn(dt);
+        this.#run(dt);
     }
 
-    chooseDir() {
-        if (this.pending) {
-            const want = this.pending === 'left' ? (this.dir + 3) % 4 : (this.dir + 1) % 4;
-            if (this.free(want)) {
-                this.pending = null;
-                return want;
-            }
+    /** Otáčení. Jde i na místě – zastavená myš se může v klidu otočit. */
+    #turn(dt) {
+        this.heading += this.turning * TURN_RATE * dt;
+    }
+
+    /**
+     * Běh vpřed s klouzáním po zdech. Osy se řeší zvlášť – díky tomu myš, která
+     * míří šikmo do stěny, sklouzne podél ní místo aby se zastavila, a zastaví
+     * se až tam, kde je zeď opravdu proti ní.
+     */
+    #run(dt) {
+        const step = this.speed * this.pace * dt;
+        if (step <= 1e-6) {
+            this.stalled = false;
+            return;
         }
-        return this.followCorridor();
+
+        const fromX = this.x;
+        const fromY = this.y;
+
+        this.x = this.#slide(this.x, Math.cos(this.heading) * step, this.y, true);
+        this.y = this.#slide(this.y, Math.sin(this.heading) * step, this.x, false);
+
+        this.stalled = Math.hypot(this.x - fromX, this.y - fromY) < step * 0.3;
+    }
+
+    /**
+     * Posun po jedné ose s dorazem o zeď. `other` je poloha na druhé ose –
+     * tělíčko je kulaté, takže se musí zkontrolovat všechny buňky, které
+     * napříč protíná.
+     */
+    #slide(value, delta, other, horizontal) {
+        if (delta === 0) return value;
+
+        const r = MOUSE_RADIUS;
+        const next = value + delta;
+        const edge = delta > 0 ? next + r : next - r;
+        const cell = Math.floor(edge);
+
+        const first = Math.floor(other - r + 1e-6);
+        const last = Math.floor(other + r - 1e-6);
+
+        for (let across = first; across <= last; across++) {
+            const wall = horizontal
+                ? this.game.level.isWall(cell, across)
+                : this.game.level.isWall(across, cell);
+            if (!wall) continue;
+
+            // doraz přesně o stěnu buňky, o zlomek pixelu dál, ať se nezasekne
+            return delta > 0 ? cell - r - 1e-4 : cell + 1 + r + 1e-4;
+        }
+
+        return next;
     }
 
     /**
      * Myš se kreslí čumákem k ose +x; o natočení se stará kontext, který dostane
      * od hry. Běh je vidět na nožkách a ocásku – fáze se počítá z `animPhase`,
-     * takže se nožky střídají i při pomalém běhu.
+     * takže se nožky střídají i při běhu na místě.
      */
     draw(ctx, cx, cy, size) {
-        const run = this.stalled ? 0 : 1;
         const gait = this.animPhase * 13;
-        const wag = Math.sin(gait * 0.5) * (0.10 + 0.10 * run);
-        const sniff = this.stalled ? Math.sin(this.animPhase * 16) * 0.02 : 0;
+        const wag = Math.sin(gait * 0.5) * (0.06 + 0.1 * this.pace);
+        const resting = this.stalled || this.pace < 0.4;
+        const sniff = resting ? Math.sin(this.animPhase * 16) * 0.02 : 0;
 
         ctx.save();
         ctx.translate(cx, cy);
@@ -81,7 +155,7 @@ export class Mouse extends Runner {
         ctx.lineWidth = 0.055;
         for (const side of [-1, 1]) {
             for (const [ox, phase] of [[-0.12, 0], [0.12, Math.PI]]) {
-                const swing = Math.sin(gait + phase + (side > 0 ? Math.PI : 0)) * 0.07 * run;
+                const swing = Math.sin(gait + phase + (side > 0 ? Math.PI : 0)) * 0.07 * Math.max(0.15, this.pace);
                 ctx.beginPath();
                 ctx.moveTo(ox, side * 0.11);
                 ctx.lineTo(ox + swing, side * 0.2);
