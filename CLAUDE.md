@@ -28,6 +28,7 @@ python3 tools/gen_mazes.py --verify js/levels/level7.js   # totéž pro hotovou 
 python3 tools/gen_mazes.py --paths js/levels/level7.js    # vypíše cestu k východu
 node tools/playtest.mjs                     # projde všech 10 levelů v Chromiu
 node tools/playtest.mjs --level 4 --trace   # kudy autopilot běžel (na ladění)
+node tools/tilttest.mjs                     # ovládání nakláněním (emulované čidlo)
 node tools/screenshot.mjs                   # náhledy do docs/
 ```
 
@@ -98,10 +99,12 @@ Z toho plynou dvě pravidla:
   `Game.drawFog` a `Theme.drawAir` běží až po `ctx.restore()`, bez otáčení – je
   to světlo, které myš nese s sebou, ne kus mapy.
 
-`Mouse.heading` se za směrem opožďuje (`TURN_RATE`) a **schválně pomaleji, než
-trvá přeběh buňky**: zahnutí je v mřížce skok, ale na obrazovce z něj má být
-pozvolné otočení mapy, ne cuknutí. Čtvrtotáčka trvá kolem 0,3 s, otočka zpátky
-dvakrát tolik.
+Natočení **není samostatná animace** – je to směr, kterým myš zrovna běží. Aby
+se labyrint otáčel pozvolna, projíždí myš zatáčku po oblouku (`Runner.place`),
+takže otáčení trvá přesně tak dlouho, jak dlouho trvá zatáčku projet (asi 0,4 s
+při základní rychlosti). Kdo chce otáčení ještě pozvolnější, musí zpomalit běh
+(`BASE_SPEED`), ne přidávat další vyhlazení. `TURN_RATE` dorovnává jen skoky,
+které oblouk nemá – otočku o 180° a rozjezd z místa.
 
 ## Minimapa: jediné místo, které se neotáčí
 
@@ -145,34 +148,70 @@ Hra běží na telefonech, takže **na snímek je rozpočet pár milisekund**:
 
 ## Ovládání
 
-Klávesy, dotyk i myš vedou do jedné metody `Game.handleAction(action)` (action =
-`left`/`right`/`back`/`pause`/`restart`/`mute`/`haptics`). Nové vstupy směruj
-taky tam, ať se logika neduplikuje.
+Klávesy, dotyk, myš i náklon telefonu vedou do jedné metody
+`Game.handleAction(action)` (action = `left`/`right`/`back`/`pause`/`restart`/
+`mute`/`haptics`/`tilt`), puštění do `Game.handleRelease(action)`. Nové vstupy
+směruj taky tam, ať se logika neduplikuje.
 
 **Zatáčení je relativní k myši, ne ke světové straně.** Labyrint se pod ní
 otáčí, takže „nahoru“ nedává smysl; smysl dává doleva, doprava a zpátky.
-Klávesnice to mapuje přes `input.js`, dotyk a myš řeší `Game.bindPointer`:
-horní pruh = pauza (jeho pravý roh zvuk, pruh vedle vibrace), zbytek plochy je
-rozdělený na tři svislé pásy – krajní zatáčejí, prostřední otočí myš zpátky.
+
+**Zatáčení se drží, neťuká.** `Game.held` si pamatuje, co hráč drží, a každý
+snímek to připomene myši (`Game.update`). Ťuknutí je jen krátké držení – po
+puštění ještě `TURN_BUFFER` sekund platí. Otočka zpátky je proti tomu
+jednorázová akce.
+
+Tři vstupy, jedna cesta:
+
+- **Klávesnice** – `input.js` mapuje `keydown` i `keyup`.
+- **Dotyk a myš** (`Game.bindPointer`) – horní pruh jsou přepínače (jejich
+  pořadí drží `Game.toggles()`, takže ikona sedí do pruhu, do kterého se ťuká),
+  zbytek plochy je rozdělený na tři svislé pásy: krajních 30 % zatáčí (drží se),
+  prostředek otočí myš zpátky. Držení se hlídá po jednotlivých prstech, takže
+  puštění jednoho prstu nezruší zatáčení druhým.
+- **Náklon telefonu** (`js/tilt.js`) – náklon doleva a doprava zatáčí, drží se
+  stejně jako klávesa. Tři věci, bez kterých by to nefungovalo: čidlo se pozná
+  až podle první události (na desktopu `DeviceOrientationEvent` existuje, ale
+  nikdy nic nepošle), iOS chce povolení a dá ho **jen z dotyku** (proto o něj
+  žádá až přepínač), a **klidová poloha se měří při zapnutí** – nikdo nedrží
+  telefon rovně. Osy čidla jsou v soustavě přístroje, takže se musí otočit podle
+  `screen.orientation.angle`, jinak by se na ležato zatáčelo nakláněním od sebe.
+  Práh je nízký (pár stupňů) s hysterezí, ať stačí mírné naklonění a přitom
+  nerozhodí chvění ruky. Ověřuje to `node tools/tilttest.mjs` s emulovaným
+  čidlem – na počítači se náklon jinak vyzkoušet nedá.
 
 Do horního pruhu se na telefonu všechno nevejde, takže `drawHud` texty **měří
 a zkracuje po stupních**: nejdřív zmizí počet pokusů, pak stav sýra.
 
 ## Pohybový model
 
-Myš běží sama po ose chodby a **rozhoduje se jen ve středech buněk**
-(`Runner.step`). Stav je buňka posledního rozhodnutí (`cx`, `cy`), směr (`dir`)
-a ujetá vzdálenost od jejího středu (`off` v rozsahu 0–1); poloha `x`, `y` se
+Myš běží sama po ose chodby a **rozhoduje se při vstupu do buňky**
+(`Runner.step`). Stav je buňka, kterou právě projíždí (`cx`, `cy`), směr, kterým
+do ní vběhla (`from`), směr, kterým z ní vyběhne (`dir`), a ujetá část buňky
+(`off` v rozsahu 0–1, 0 na vstupní hranici, 1 na výstupní). Poloha `x`, `y` se
 z toho počítá, ne naopak.
+
+**Zatáčka se projíždí po oblouku** – čtvrtkruh o poloměru půl buňky kolem
+vnitřního rohu, který začíná i končí uprostřed hranice buňky, takže se do
+jednopolíčkové chodby vejde s rezervou. Z toho plyne to hlavní: natočení je
+vždycky opravdový směr pohybu, takže se labyrint otáčí přesně tak dlouho, jak
+dlouho se zatáčka jede. Rozhodnutí proto musí padnout **na hranici buňky**, ne
+uprostřed – jinak by nebylo kdy oblouk začít.
+
+Přeběh buňky trvá vždycky `1 / rychlost` bez ohledu na to, jestli vede rovně
+nebo do zatáčky (oblouk je o pětinu kratší, takže myš v zatáčce trochu zpomalí).
+Díky tomu si čas ve hře odpovídá s tím, co počítá generátor.
 
 - **Rovně, doprava, doleva** (`Runner.followCorridor`) – v tomhle pořadí se
   hledá cesta, když hráč nic neřekl. Zatáčky v chodbě tedy myš projede sama
-  a hráč rozhoduje jen na křižovatkách; když nikam nemůže, zastaví (`stalled`)
-  a čeká, až ji někdo otočí.
-- **Požadavek na zatáčku se pamatuje `TURN_BUFFER` sekund.** Bez toho by se
-  hráč musel trefit přesně do křižovatky.
-- **Otočka (`back`) je okamžitá** a nečeká na střed buňky – ve slepé uličce není
-  na co čekat. Je to zároveň jediný způsob, jak počkat před pastí: myš popoběhne
+  a hráč rozhoduje jen na křižovatkách; když nikam nemůže, zastaví (`stalled`),
+  dojede doprostřed buňky, zapře se do zdi a čeká, až ji někdo otočí.
+- **Zatáčení se drží.** Dokud hráč drží šipku, prst na kraji obrazovky nebo
+  náklon telefonu, myš zahne v každé odbočce, která se naskytne. Po puštění
+  ještě `TURN_BUFFER` sekund platí – aby stačilo ťuknout těsně před křižovatkou.
+- **Otočka (`back`) je okamžitá** a nečeká na hranici buňky – myš se vrátí po
+  svém vlastním oblouku (`Runner.reverse` jen prohodí vstupní a výstupní
+  hranici). Je to zároveň jediný způsob, jak počkat před pastí: myš popoběhne
   zpátky a vrátí se v jinou chvíli.
 - Zeď **nezabíjí**. Myš není kostka z cube-runneru; do zdi se jen zapře.
 

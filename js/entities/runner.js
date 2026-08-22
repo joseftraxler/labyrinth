@@ -7,30 +7,38 @@ import {TURN_RATE} from "../physics.js";
  * liší se jen tím, **kdo rozhoduje** v křižovatce (`chooseDir`): u myši hráč,
  * u kočky její vlastní hlava.
  *
- * Pohyb je uzamčený do mřížky, protože se z toho odvíjí všechno ostatní:
- *   - hra je ovladatelná jedním prstem (řekni jen „vlevo“, myš zatočí přesně),
- *   - otáčení labyrintu je plynulé i při ostrém zahnutí (natáčení má vlastní
- *     rychlost `TURN_RATE`, pozice na ose chodby se mění skokem),
- *   - a hlavně je pohyb **přesně předvídatelný**, takže umí generátor
- *     (`tools/gen_mazes.py`) level odsimulovat a ověřit průchodnost.
+ * Dráha je uzamčená do mřížky, ale **zatáčky se projíždějí obloukem**: buňka se
+ * přebíhá od hranice k hranici a při zahnutí vede cesta po čtvrtkruhu kolem
+ * vnitřního rohu. Z toho plyne to hlavní – natočení je vždycky směr, kterým se
+ * zvíře opravdu žene, takže se labyrint na obrazovce otáčí přesně tak dlouho,
+ * jak dlouho trvá projet zatáčku. Žádné cuknutí o 90°.
  *
- * Stav je uložený jako buňka posledního rozhodnutí (`cx`, `cy`), směr (`dir`)
- * a ujetá vzdálenost od jejího středu (`off` v rozsahu 0–1). Ze všech tří se
- * pak počítá poloha `x`, `y`. Rozhodnutí padají **jen ve středech buněk**.
+ * Stav: buňka, kterou zvíře právě projíždí (`cx`, `cy`), směr, kterým do ní
+ * vběhlo (`from`), směr, kterým z ní vyběhne (`dir`), a ujetá část buňky
+ * (`off` v rozsahu 0–1, 0 na vstupní hranici, 1 na výstupní). Poloha `x`, `y`
+ * se z toho počítá, ne naopak.
+ *
+ * **Rozhodnutí padá při vstupu do buňky**, ne uprostřed – jinak by nebylo kdy
+ * oblouk začít. Přeběh buňky trvá vždycky stejně dlouho (`1 / rychlost`) bez
+ * ohledu na to, jestli vede rovně nebo do zatáčky; oblouk je o pětinu kratší
+ * než rovná cesta, takže zvíře v zatáčce o kousek zpomalí – a hlavně si díky
+ * tomu odpovídá čas ve hře s tím, co počítá generátor (`tools/gen_mazes.py`).
  */
 export class Runner extends Entity {
     reset() {
         this.cx = this.spawnX;
         this.cy = this.spawnY;
         this.dir = this.firstWayOut();
-        this.off = 0;
+        this.from = this.dir;
+        this.off = 0.5;            // startuje se uprostřed doupěte
         this.speed = 0;
         this.stalled = false;      // stojí čelem u zdi a čeká na pokyn
         this.turns = 0;            // kolik zatáček má za sebou (kvůli zvuku)
         super.reset();
-        this.heading = dirAngle(this.dir);
+
+        this.tangent = dirAngle(this.dir);
+        this.heading = this.tangent;
         this.place();
-        this.decide();
     }
 
     /**
@@ -38,8 +46,8 @@ export class Runner extends Entity {
      * vedoucí sever–jih startovalo čelem do zdi a stálo, dokud by mu někdo
      * neřekl, ať se otočí – a hráč by hru začínal nárazem.
      *
-     * Stejně jako `place()` je metoda schválně veřejná: volá se z `reset()`,
-     * tedy ještě z konstruktoru předka, kde soukromé metody podtřídy neexistují.
+     * Metoda je schválně veřejná: volá se z `reset()`, tedy ještě z konstruktoru
+     * předka, kde soukromé metody podtřídy neexistují.
      */
     firstWayOut() {
         for (let dir = 0; dir < 4; dir++) {
@@ -49,67 +57,109 @@ export class Runner extends Entity {
         return 0;
     }
 
-    /** Přepočítá polohu z buňky, směru a ujeté vzdálenosti – ne naopak. */
+    /**
+     * Přepočítá polohu a natočení z buňky, obou směrů a ujeté části. Rovně
+     * skrz buňku je to úsečka přes střed, do zatáčky čtvrtkruh o poloměru půl
+     * buňky kolem vnitřního rohu – oblouk začíná i končí přesně uprostřed
+     * hranice, takže se do jednopolíčkové chodby vejde s rezervou.
+     */
     place() {
-        const d = DIRS[this.dir];
-        this.x = this.cx + 0.5 + d.x * this.off;
-        this.y = this.cy + 0.5 + d.y * this.off;
+        const from = DIRS[this.from];
+        const dir = DIRS[this.dir];
+        const cx = this.cx + 0.5;
+        const cy = this.cy + 0.5;
+
+        if (this.from === this.dir || (this.from + 2) % 4 === this.dir) {
+            this.x = cx + dir.x * (this.off - 0.5);
+            this.y = cy + dir.y * (this.off - 0.5);
+            this.tangent = dirAngle(this.dir);
+            return;
+        }
+
+        // střed oblouku je vnitřní roh zatáčky
+        const ox = cx - 0.5 * from.x + 0.5 * dir.x;
+        const oy = cy - 0.5 * from.y + 0.5 * dir.y;
+
+        const start = Math.atan2(-dir.y, -dir.x);
+        const sweep = angleDiff(start, Math.atan2(from.y, from.x));
+        const angle = start + sweep * this.off;
+
+        this.x = ox + Math.cos(angle) * 0.5;
+        this.y = oy + Math.sin(angle) * 0.5;
+
+        // Natočení jede po oblouku, ale s měkkým rozjezdem a dojezdem – konec
+        // otáčení tak nesekne, i když oblouk končí ostře na hranici buňky.
+        const turn = angleDiff(dirAngle(this.from), dirAngle(this.dir));
+        this.tangent = dirAngle(this.from) + turn * smooth(this.off);
     }
 
     step(dt) {
         super.step(dt);
 
-        // Natočení se za směrem opožďuje – z toho vzniká plynulé otáčení
-        // labyrintu, i když se myš na ose chodby zalomí v rohu naráz.
-        const turn = angleDiff(this.heading, dirAngle(this.dir));
-        const most = TURN_RATE * dt;
-        this.heading += Math.max(-most, Math.min(most, turn));
-
         if (this.stalled) {
             // Rozhodnutí se zkouší dál – jakmile přijde pokyn, zvíře se rozjede
             this.decide();
-            if (this.stalled) return;
+            if (this.stalled) {
+                // Zapře se čelem do zdi doprostřed buňky a čeká
+                this.off = Math.min(0.5, this.off + this.speed * dt);
+                this.place();
+                this.#turnHead(dt);
+                return;
+            }
         }
 
         let left = this.speed * dt;
         while (left > 0) {
-            const toCenter = 1 - this.off;
-            if (left < toCenter) {
+            const toEdge = 1 - this.off;
+            if (left < toEdge) {
                 this.off += left;
                 break;
             }
 
-            left -= toCenter;
+            left -= toEdge;
             this.cx += DIRS[this.dir].x;
             this.cy += DIRS[this.dir].y;
+            this.from = this.dir;
             this.off = 0;
             this.decide();
             if (this.stalled) break;
         }
 
         this.place();
+        this.#turnHead(dt);
     }
 
-    /** Otočka o 180° – jediné rozhodnutí, které nečeká na střed buňky. */
+    /** Natočení dojíždí za směrem pohybu – kvůli otočkám, které jsou skokové. */
+    #turnHead(dt) {
+        const turn = angleDiff(this.heading, this.tangent);
+        const most = TURN_RATE * dt;
+        this.heading += Math.max(-most, Math.min(most, turn));
+    }
+
+    /**
+     * Otočka o 180°. Zvíře se vrací po vlastní stopě, takže se jen prohodí
+     * vstupní a výstupní hranice buňky – i uprostřed zatáčky se tím vrátí
+     * po tomtéž oblouku.
+     */
     reverse() {
-        this.cx += DIRS[this.dir].x;
-        this.cy += DIRS[this.dir].y;
+        const from = this.from;
+        this.from = (this.dir + 2) % 4;
+        this.dir = (from + 2) % 4;
         this.off = 1 - this.off;
-        this.dir = (this.dir + 2) % 4;
         this.stalled = false;
         this.turns++;
         this.place();
     }
 
-    /** Je v tomhle směru z buňky rozhodnutí volno? */
+    /** Je v tomhle směru z buňky, do které zvíře vbíhá, volno? */
     free(dir) {
         const d = DIRS[dir];
         return this.game.level.isFree(this.cx + d.x, this.cy + d.y);
     }
 
     /**
-     * Vybere směr ve středu buňky. Když nevede nikam (slepá ulička), zvíře se
-     * zastaví a čeká – otočit se musí ten, kdo ho řídí.
+     * Vybere směr při vstupu do buňky. Když nevede nikam (slepá ulička), zvíře
+     * se zastaví a čeká – otočit se musí ten, kdo ho řídí.
      */
     decide() {
         const dir = this.chooseDir();
@@ -143,4 +193,9 @@ export class Runner extends Entity {
         }
         return null;
     }
+}
+
+// Měkký rozjezd a dojezd (smoothstep) – z 0 do 1 bez zlomu na koncích
+function smooth(t) {
+    return t * t * (3 - 2 * t);
 }

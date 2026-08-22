@@ -472,9 +472,11 @@ def find_path(maze, start, exit_cell, speed_pct, limit=2400):
                 cell = (x + dx, y + dy)
                 if not maze.free(*cell) or cell in nxt:
                     continue
-                if not trap_safe(maze, cell, clock + dt, speed):
+                # Buňka se přebíhá od hranice k hranici, takže doprostřed té
+                # další doběhne myš o půl buňky později (js/entities/runner.js)
+                if not trap_safe(maze, cell, clock + 1.5 * dt, speed):
                     continue
-                if not saws_safe(tracks, (x, y), cell, clock, dt, speed):
+                if not saws_safe(tracks, (x, y), cell, clock + 0.5 * dt, dt, speed):
                     continue
                 nxt[cell] = (x, y)
 

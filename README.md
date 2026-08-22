@@ -20,14 +20,21 @@ v labyrintu. Pomáhá **plánek v pravém horním rohu** – ukazuje celý labyr
 zeleně to, kudy už jsi prošla, kde je východ a kterým směrem myš zrovna míří.
 Na plánku je sever nahoře, i když se labyrint pod myší otáčí.
 
-| Co chceš | Klávesnice | Dotyk a myš |
-| --- | --- | --- |
-| zahnout doleva | `←` / `A` | levý kraj obrazovky |
-| zahnout doprava | `→` / `D` | pravý kraj obrazovky |
-| otočit se zpátky | `mezerník` / `↓` / `S` | střed obrazovky |
-| pauza | `Esc` / `P` | horní pruh |
-| zkusit znovu | `R` | – |
-| zvuk / vibrace | `M` / `H` | ikony v pravém rohu |
+| Co chceš | Klávesnice | Dotyk a myš | Náklon |
+| --- | --- | --- | --- |
+| zahnout doleva | držet `←` / `A` | držet levý kraj obrazovky | naklonit telefon doleva |
+| zahnout doprava | držet `→` / `D` | držet pravý kraj obrazovky | naklonit telefon doprava |
+| otočit se zpátky | `mezerník` / `↓` / `S` | střed obrazovky | – |
+| pauza | `Esc` / `P` | horní pruh | – |
+| zkusit znovu | `R` | – | – |
+| zvuk / vibrace / náklon | `M` / `H` / `T` | ikony v pravém rohu | – |
+
+**Zatáčení se drží, neťuká.** Dokud držíš šipku, kraj obrazovky nebo naklopený
+telefon, myš zahne v každé odbočce, která se naskytne – a zatáčku projede po
+oblouku, takže se labyrint stočí přesně tak dlouho, jak dlouho zatáčka trvá.
+Ovládání nakláněním se zapíná ikonou telefonu v pravém rohu (na iPhonu si při
+tom řekne o přístup k čidlu). Stačí mírný náklon a hra si při zapnutí zapamatuje,
+jak telefon zrovna držíš.
 
 Zatáčení je **relativní k myši**: labyrint se otáčí jako mapa v navigaci, takže
 „doleva“ znamená doleva pořád, ať už myš běží kamkoliv. Zeď myš nezabije, jen se
@@ -82,6 +89,7 @@ Když neprojde, nic se nezapíše.
 python3 tools/gen_mazes.py           # přegeneruje js/levels/*.js
 python3 tools/gen_mazes.py --check   # jen ověří, nic nezapíše
 node tools/playtest.mjs              # projde všech 10 levelů v Chromiu
+node tools/tilttest.mjs              # ovládání nakláněním s emulovaným čidlem
 ```
 
 Playtest hru opravdu hraje: pustí ji v prohlížeči a odehraje autopilotem, který

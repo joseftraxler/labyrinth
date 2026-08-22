@@ -255,8 +255,8 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
         const mouse = game.mouse;
         if (threatIn(back(mouse.dir)) <= 3) return false;
 
-        const bx = mouse.cx - DIRS[mouse.dir][0];
-        const by = mouse.cy - DIRS[mouse.dir][1];
+        const bx = mouse.cx - DIRS[mouse.from][0];
+        const by = mouse.cy - DIRS[mouse.from][1];
         if (!game.level.isFree(bx, by)) return true;
 
         // Když je pila na dosah, je past za zády pořád lepší volba: do pily se
@@ -269,7 +269,7 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
             }
         }
 
-        return hasWayOut(bx, by, back(mouse.dir));
+        return hasWayOut(bx, by, back(mouse.from));
     };
 
     /**
@@ -363,15 +363,27 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
      * to by myš na místě jen kmitala a nikdy by z buňky nevyjela. Mezi dvěma
      * otočkami proto musí uběhnout aspoň kousek chodby.
      */
+    /**
+     * Zatáčení se ve hře **drží** (klávesa, prst, náklon), takže ho autopilot
+     * musí umět i pustit – jinak by myš zahýbala dál i potom, co už dávno chce
+     * jet rovně.
+     */
+    const hold = side => {
+        if (game.held === side) return;
+        if (game.held) game.handleRelease(game.held);
+        if (side) game.handleAction(side);
+    };
+
     let lastTurnBack = -1;
     const turnBack = (urgent = false) => {
         // Otočka na záchranu života smí přijít kdykoliv – ale jen když myš mezi
         // dvěma otočkami kus popoběhla. Jinak by se dvě nástrahy proti sobě
         // přetahovaly o myš, která by mezi nimi kmitala na místě.
         const moved = game.mouse.off > 0.25;
-        if (!(urgent && moved) && game.clock - lastTurnBack < 0.16) return;
+        if (!(urgent && moved) && game.clock - lastTurnBack < 0.3) return;
 
         lastTurnBack = game.clock;
+        hold(null);
         game.handleAction('back');
     };
 
@@ -389,18 +401,19 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
             return;
         }
 
-        // Ve středu buňky se dá otočit – jinde ne, otočka je okamžitá
-        if (mouse.off < 0.06) {
-            const now = choose(mouse.cx, mouse.cy, mouse.dir, game.clock);
-            if (now === back(mouse.dir)) {
-                turnBack();
-                return;
-            }
+        // Otočka jde kdykoliv – myš se vrátí po svém oblouku, takže se čeká
+        // před pastí popobíháním tam a zpátky, ne stáním na místě
+        const now = choose(mouse.cx, mouse.cy, mouse.from, game.clock);
+        if (now === back(mouse.dir)) {
+            turnBack();
+            return;
         }
 
         const nx = mouse.cx + DIRS[mouse.dir][0];
         const ny = mouse.cy + DIRS[mouse.dir][1];
-        const arrival = game.clock + (1 - mouse.off) / game.runSpeed;
+        // Buňka se přebíhá od hranice k hranici, takže doprostřed té další je
+        // to o půl buňky dál, než kolik zbývá do konce téhle
+        const arrival = game.clock + (1.5 - mouse.off) / game.runSpeed;
 
         // Buňka, do které se myš právě řítí, se mezitím mohla stát pastí –
         // otočka je okamžitá, takže se z ní dá vycouvat i mimo střed
@@ -414,9 +427,9 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
         const want = choose(nx, ny, mouse.dir, arrival);
         const turn = (want - mouse.dir + 4) % 4;
 
-        if (turn === 1) game.handleAction('right');
-        else if (turn === 3) game.handleAction('left');
-        else mouse.pending = null;   // rovně: zrušit dřív ohlášenou zatáčku
+        if (turn === 1) hold('right');
+        else if (turn === 3) hold('left');
+        else hold(null);            // rovně: pustit dřív ohlášenou zatáčku
     };
 
     const samples = [];
@@ -431,8 +444,16 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
             const mouse = game.mouse;
             const ax = mouse.cx + DIRS[mouse.dir][0];
             const ay = mouse.cy + DIRS[mouse.dir][1];
-            const arrival = game.clock + (1 - mouse.off) / game.runSpeed;
-            recent.push(`${elapsed.toFixed(1)}s myš ${mouse.x.toFixed(1)},${mouse.y.toFixed(1)} dir${mouse.dir}` +
+            // Buňka se přebíhá od hranice k hranici, takže doprostřed té další je
+        // to o půl buňky dál, než kolik zbývá do konce téhle
+        const arrival = game.clock + (1.5 - mouse.off) / game.runSpeed;
+            const options = [0, 1, 2, 3]
+                .filter(d => game.level.isFree(mouse.cx + DIRS[d][0], mouse.cy + DIRS[d][1]))
+                .map(d => `${d}:${distanceOut(mouse.cx + DIRS[d][0], mouse.cy + DIRS[d][1])}` +
+                    `${blocker(mouse.cx + DIRS[d][0], mouse.cy + DIRS[d][1], d, game.clock + 1 / game.runSpeed) ?? ''}`)
+                .join(' ');
+            recent.push(`${elapsed.toFixed(1)}s buňka ${mouse.cx},${mouse.cy} [${options}] stuck=${stuckFor.toFixed(1)}` +
+                ` myš ${mouse.x.toFixed(1)},${mouse.y.toFixed(1)} dir${mouse.dir}` +
                 ` off=${mouse.off.toFixed(2)} vpřed ${ax},${ay} (${game.level.trapAt(ax, ay) ?? '-'})` +
                 ` bezpečno=${safe(ax, ay, arrival)} příjezd=${arrival.toFixed(2)}` +
                 ` hrozba ${threatIn(mouse.dir).toFixed(1)} couvnout=${canReverse(true)}`);
@@ -487,7 +508,12 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
         }
     }
 
-    return {ok: false, why: `nedoběhla do ${seconds} s (postup ${Math.round(game.progress * 100)} %)`, deaths, samples};
+    return {
+        ok: false,
+        why: `nedoběhla do ${seconds} s (postup ${Math.round(game.progress * 100)} %)`,
+        deaths,
+        samples: [...samples, '--- poslední dvě vteřiny ---', ...recent],
+    };
 }
 
 const args = process.argv.slice(2);

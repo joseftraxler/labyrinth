@@ -30,6 +30,9 @@ const levels = [
  * Zatáčení je **relativní k myši**, ne ke světové straně: labyrint se pod ní
  * otáčí jako mapa v navigaci, takže „nahoru“ na klávesnici neznamená nic –
  * smysl dává jen doleva, doprava a zpátky.
+ *
+ * Šipky se **drží**: dokud je klávesa dole, myš zahne v každé odbočce, která
+ * se naskytne. Totéž dělá prst na kraji obrazovky a náklon telefonu (`keyT`).
  */
 const controls = {
     'left': ['arrowLeft', 'keyA'],
@@ -39,6 +42,7 @@ const controls = {
     'restart': ['keyR'],
     'mute': ['keyM'],
     'haptics': ['keyH'],
+    'tilt': ['keyT'],
 };
 
 // Instance je dostupná i z konzole prohlížeče – hodí se na ladění

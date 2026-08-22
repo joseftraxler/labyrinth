@@ -4,6 +4,7 @@ import {Cat} from "./entities/cat.js";
 import {Saw} from "./entities/saw.js";
 import {Sound} from "./audio.js";
 import {Haptics} from "./haptics.js";
+import {Tilt} from "./tilt.js";
 import {actionForEvent, buildKeyMap} from "./input.js";
 import {themeFor} from "./themes/registry.js";
 import {DIRS, TAU, noise, roundRect} from "./draw.js";
@@ -40,6 +41,8 @@ export class Game {
 
         this.sound = new Sound();
         this.haptics = new Haptics();
+        this.tilt = new Tilt();
+        this.held = null;           // zatáčení, které hráč právě drží
 
         this.levelIndex = 0;
         this.score = 0;
@@ -102,6 +105,12 @@ export class Game {
             e.preventDefault();
             if (!e.repeat) this.handleAction(action);
         });
+
+        // Zatáčení se **drží** – puštěná klávesa musí zatáčení hned ukončit
+        window.addEventListener('keyup', e => {
+            const action = actionForEvent(this.keyMap, e);
+            if (action) this.handleRelease(action);
+        });
     }
 
     /**
@@ -118,6 +127,10 @@ export class Game {
                 return;
             case 'haptics':
                 this.haptics.toggle();
+                return;
+            case 'tilt':
+                // Povolení k čidlu si iOS říká jen z dotyku, proto až tady
+                this.tilt.toggle();
                 return;
             case 'restart':
                 this.retry();
@@ -150,7 +163,17 @@ export class Game {
                 return;
         }
 
-        if (this.state === 'playing') this.mouse.steer(action);
+        if (this.state !== 'playing') return;
+
+        // Otočka je jednorázová, zatáčení se drží – dokud hráč drží kraj
+        // obrazovky, šipku nebo náklon, myš zahne v každé další odbočce.
+        if (action === 'back') this.mouse.steer('back');
+        else this.held = action;
+    }
+
+    /** Puštění klávesy nebo prstu – zatáčení skončí. */
+    handleRelease(action) {
+        if (this.held === action) this.held = null;
     }
 
     /**
@@ -160,30 +183,65 @@ export class Game {
      * labyrintu hráč přemýšlí v „doleva/doprava“, ne ve světových stranách.
      */
     bindPointer() {
-        const press = (px, py) => {
-            const w = this.c.width / this.dpr;
+        const holds = new Map();    // prst (nebo myš) → co drží
+
+        const at = (px, py) => {
+            const w = this.w;
 
             if (py < HUD) {
-                if (px > w - ICON_ZONE) this.handleAction('mute');
-                else if (px > w - 2 * ICON_ZONE) this.handleAction('haptics');
-                else this.handleAction('pause');
-                return;
+                const zones = this.toggles();
+                const index = Math.floor((w - px) / ICON_ZONE);
+                return index < zones.length ? zones[index] : 'pause';
             }
 
-            if (px < w * 0.38) this.handleAction('left');
-            else if (px > w * 0.62) this.handleAction('right');
-            else this.handleAction('back');
+            if (px < w * 0.3) return 'left';
+            if (px > w * 0.7) return 'right';
+            return 'back';
+        };
+
+        const press = (id, px, py) => {
+            const action = at(px, py);
+            holds.set(id, action);
+            this.handleAction(action);
+        };
+
+        const release = id => {
+            const action = holds.get(id);
+            if (!action) return;
+            holds.delete(id);
+            this.handleRelease(action);
         };
 
         this.c.addEventListener('mousedown', e => {
             e.preventDefault();
-            press(e.clientX, e.clientY);
+            press('mouse', e.clientX, e.clientY);
         });
+        window.addEventListener('mouseup', () => release('mouse'));
+
         this.c.addEventListener('touchstart', e => {
             e.preventDefault();
-            for (const touch of e.changedTouches) press(touch.clientX, touch.clientY);
+            for (const touch of e.changedTouches) press(touch.identifier, touch.clientX, touch.clientY);
         }, {passive: false});
+        for (const name of ['touchend', 'touchcancel']) {
+            this.c.addEventListener(name, e => {
+                e.preventDefault();
+                for (const touch of e.changedTouches) release(touch.identifier);
+            }, {passive: false});
+        }
+
         this.c.addEventListener('contextmenu', e => e.preventDefault());
+    }
+
+    /**
+     * Přepínače v pravém rohu HUD, zprava doleva. Je to jediné místo, kde se
+     * jejich pořadí určuje – kreslení i ťukání se ptá tady, takže ikona sedí do
+     * stejného pruhu, do jakého se ťuká.
+     */
+    toggles() {
+        const zones = ['mute'];
+        if (this.haptics.supported) zones.push('haptics');
+        if (this.tilt.supported) zones.push('tilt');
+        return zones;
     }
 
     /** Zvuk a vibrace k jedné události – ať se to nikde nerozejde. */
@@ -303,6 +361,11 @@ export class Game {
         this.prevClock = this.clock;
         this.clock += dt;
 
+        // Zatáčení se drží: klávesa, prst na kraji obrazovky nebo náklon
+        // telefonu. Dokud drží, myš zahne v každé odbočce, která se naskytne.
+        const side = this.held ?? this.tilt.read();
+        if (side) this.mouse.steer(side);
+
         const stalled = this.mouse.stalled;
         this.mouse.speed = this.runSpeed;
         this.mouse.step(dt);
@@ -319,7 +382,7 @@ export class Game {
         this.hearTraps();
         this.collectCheese();
 
-        const dist = this.level.distanceToExit(this.mouse.cellX, this.mouse.cellY);
+        const dist = this.level.distanceToExit(this.mouse.cx, this.mouse.cy);
         if (dist >= 0 && this.level.startDist > 0) {
             this.progress = Math.max(0, Math.min(1, 1 - dist / this.level.startDist));
         }
@@ -330,7 +393,10 @@ export class Game {
             return;
         }
 
-        if (this.level.isExit(this.mouse.cellX, this.mouse.cellY)) this.escaped();
+        // Buňka, kterou myš právě projíždí – ne ta, ve které je zrovna střed
+        // její kresby. Východ je poslední buňka v obvodové zdi a myš se v ní
+        // zapře do zdi, takže se počítá už vběhnutí, ne doběhnutí doprostřed.
+        if (this.level.isExit(this.mouse.cx, this.mouse.cy)) this.escaped();
     }
 
     /**
@@ -366,7 +432,7 @@ export class Game {
     }
 
     collectCheese() {
-        if (this.level.takeCheese(this.mouse.cellX, this.mouse.cellY)) {
+        if (this.level.takeCheese(this.mouse.cx, this.mouse.cy)) {
             this.cheeseTaken++;
             this.feedback('cheese');
         }
@@ -389,8 +455,8 @@ export class Game {
      * labyrint není vidět, jen kus okolo myši.
      */
     updateVisibility(force = false) {
-        const cx = this.mouse.cellX;
-        const cy = this.mouse.cellY;
+        const cx = this.mouse.cx;
+        const cy = this.mouse.cy;
         if (!force && cx === this.seenX && cy === this.seenY) return;
 
         this.seenX = cx;
@@ -825,7 +891,8 @@ export class Game {
 
         // pruh postupu k východu
         const barX = pad + 26;
-        const barW = Math.max(60, w - barX - pad - 2 * ICON_ZONE);
+        const icons = this.toggles().length * ICON_ZONE;
+        const barW = Math.max(60, w - barX - pad - icons);
         const barY = HUD - 13;
         ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
         roundRect(ctx, barX, barY, barW, 6, 3);
@@ -858,7 +925,7 @@ export class Game {
         ctx.textBaseline = 'middle';
         ctx.fillStyle = '#e9edff';
 
-        const room = w - barX - 2 * ICON_ZONE - pad;
+        const room = w - barX - icons - pad;
         const cheese = `SÝR ${this.cheeseTaken}/${this.level.cheeseCount}`;
         const attempt = `POKUS ${this.attempt}`;
         const label = `LEVEL ${this.levelIndex + 1}`;
@@ -881,60 +948,101 @@ export class Game {
         this.drawToggles();
     }
 
-    /** Přepínače zvuku a vibrací – ikona sedí do stejně širokého pruhu, do jakého se ťuká. */
+    /**
+     * Přepínače v rohu HUD. Pořadí i počet drží `toggles()`, takže ikona sedí
+     * přesně do pruhu, do kterého se ťuká; ikony, pro které zařízení nemá
+     * čidlo (vibrace, náklon), se nekreslí ani neťukají.
+     */
     drawToggles() {
         const ctx = this.ctx;
-        const w = this.w;
         const cy = HUD / 2 - 3;
 
-        ctx.strokeStyle = '#e9edff';
-        ctx.fillStyle = '#e9edff';
         ctx.lineWidth = 2;
+        ctx.lineCap = 'butt';
 
-        // reproduktor
-        const sx = w - ICON_ZONE / 2 - 6;
+        this.toggles().forEach((zone, index) => {
+            const x = this.w - (index + 0.5) * ICON_ZONE;
+            ctx.strokeStyle = '#e9edff';
+            ctx.fillStyle = '#e9edff';
+
+            if (zone === 'mute') this.#drawSoundIcon(x, cy);
+            if (zone === 'haptics') this.#drawPhoneIcon(x, cy, this.haptics.enabled, false);
+            if (zone === 'tilt') this.#drawPhoneIcon(x, cy, this.tilt.enabled, true);
+        });
+
+        ctx.globalAlpha = 1;
+    }
+
+    #drawSoundIcon(x, cy) {
+        const ctx = this.ctx;
+
         ctx.beginPath();
-        ctx.moveTo(sx - 8, cy - 4);
-        ctx.lineTo(sx - 4, cy - 4);
-        ctx.lineTo(sx + 1, cy - 9);
-        ctx.lineTo(sx + 1, cy + 9);
-        ctx.lineTo(sx - 4, cy + 4);
-        ctx.lineTo(sx - 8, cy + 4);
+        ctx.moveTo(x - 9, cy - 4);
+        ctx.lineTo(x - 5, cy - 4);
+        ctx.lineTo(x, cy - 9);
+        ctx.lineTo(x, cy + 9);
+        ctx.lineTo(x - 5, cy + 4);
+        ctx.lineTo(x - 9, cy + 4);
         ctx.closePath();
         ctx.fill();
 
         if (this.sound.muted) {
             ctx.beginPath();
-            ctx.moveTo(sx + 4, cy - 6);
-            ctx.lineTo(sx + 12, cy + 6);
-            ctx.moveTo(sx + 12, cy - 6);
-            ctx.lineTo(sx + 4, cy + 6);
+            ctx.moveTo(x + 3, cy - 6);
+            ctx.lineTo(x + 11, cy + 6);
+            ctx.moveTo(x + 11, cy - 6);
+            ctx.lineTo(x + 3, cy + 6);
             ctx.stroke();
-        } else {
-            ctx.beginPath();
-            ctx.arc(sx + 2, cy, 7, -0.9, 0.9);
-            ctx.stroke();
+            return;
         }
 
-        // vibrace (jen tam, kde je motor)
-        if (!this.haptics.supported) return;
-
-        const hx = w - ICON_ZONE * 1.5 - 6;
-        ctx.globalAlpha = this.haptics.enabled ? 1 : 0.4;
-        roundRect(ctx, hx - 5, cy - 9, 10, 18, 2);
+        ctx.beginPath();
+        ctx.arc(x + 1, cy, 7, -0.9, 0.9);
         ctx.stroke();
-        if (this.haptics.enabled) {
+    }
+
+    /**
+     * Telefon: buď s vlnkami (vibrace), nebo nakloněný se šipkou (ovládání
+     * náklonem). Vypnutý přepínač je zašedlý a přeškrtnutý – aby bylo poznat,
+     * že tam čidlo je, ale nepoužívá se.
+     */
+    #drawPhoneIcon(x, cy, on, tilted) {
+        const ctx = this.ctx;
+
+        ctx.globalAlpha = on ? 1 : 0.4;
+        ctx.save();
+        ctx.translate(x, cy);
+        if (tilted) ctx.rotate(-0.35);
+        roundRect(ctx, -5, -9, 10, 18, 2);
+        ctx.stroke();
+        ctx.restore();
+
+        if (tilted) {
+            // oblouček se šipkou, kterým se telefon naklání
+            ctx.beginPath();
+            ctx.arc(x, cy, 13, -2.5, -0.7);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(x + 9, cy - 9);
+            ctx.lineTo(x + 12, cy - 5);
+            ctx.lineTo(x + 6, cy - 5);
+            ctx.closePath();
+            ctx.fill();
+        } else if (on) {
             for (const side of [-1, 1]) {
                 ctx.beginPath();
-                ctx.arc(hx, cy, 11, side > 0 ? -0.6 : Math.PI - 0.6, side > 0 ? 0.6 : Math.PI + 0.6);
+                ctx.arc(x, cy, 11, side > 0 ? -0.6 : Math.PI - 0.6, side > 0 ? 0.6 : Math.PI + 0.6);
                 ctx.stroke();
             }
-        } else {
+        }
+
+        if (!on) {
             ctx.beginPath();
-            ctx.moveTo(hx - 10, cy - 10);
-            ctx.lineTo(hx + 10, cy + 10);
+            ctx.moveTo(x - 10, cy - 10);
+            ctx.lineTo(x + 10, cy + 10);
             ctx.stroke();
         }
+
         ctx.globalAlpha = 1;
     }
 
@@ -976,8 +1084,12 @@ export class Game {
                 return [
                     `Level ${this.levelIndex + 1}${this.theme.name() ? ' – ' + this.theme.name() : ''}`,
                     'Myš běží sama, ty jí říkáš jen kudy.',
-                    '← → zatáčí, mezerník otočí zpátky',
-                    'Dotykem: kraje zatáčí, střed otočí',
+                    this.tilt.enabled
+                        ? 'Nakloň telefon a myš zahne v první odbočce'
+                        : 'Drž ← → nebo kraj obrazovky – zahne v každé odbočce',
+                    this.tilt.supported && !this.tilt.enabled
+                        ? 'Ikonou telefonu se zapne zatáčení nakláněním'
+                        : 'Mezerník nebo střed obrazovky ji otočí zpátky',
                 ];
             case 'paused':
                 return ['Pauza', 'Pokračuj klávesou nebo ťuknutím'];

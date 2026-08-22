@@ -15,13 +15,14 @@
 export const BASE_SPEED = 2.35;     // rychlost běhu při 100 % (buněk/s)
 
 /**
- * Jak rychle se myš (a s ní celý labyrint) otáčí do nového směru. Je to
- * schválně **pomalejší, než trvá přeběh buňky**: zahnutí v mřížce je skok, ale
- * na obrazovce z něj má být pozvolná otočka mapy, ne cuknutí. Čtvrtotáčka trvá
- * kolem 0,3 s, otočka zpátky dvakrát tolik.
+ * Jak rychle natočení dojíždí za směrem pohybu. **Zatáčení samo tímhle neřídí** –
+ * myš projíždí zatáčku po oblouku (`Runner.place`), takže se labyrint otáčí
+ * přesně tak dlouho, jak dlouho se zatáčka jede (asi 0,4 s). Tahle rychlost
+ * dorovnává jen skoky, které oblouk nemá: otočku o 180°, kterou se čeká před
+ * pastí, nebo rozjezd z místa.
  */
-export const TURN_RATE = 5;         // rychlost natáčení myši i kamery (rad/s)
-export const TURN_BUFFER = 0.40;    // jak dlouho čeká požadavek na odbočku (s)
+export const TURN_RATE = 6;         // rad/s
+export const TURN_BUFFER = 0.45;    // jak dlouho čeká požadavek na odbočku po puštění (s)
 
 export const MOUSE_HIT = 0.36;      // poloměr myši pro smrtící dotyk (buňky)
 export const SAW_HIT = 0.46;        // poloměr pily
