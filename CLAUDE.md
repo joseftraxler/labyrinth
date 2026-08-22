@@ -4,8 +4,10 @@ Pokyny pro práci na této hře. Drž se jich, ať zůstane konzistentní.
 
 ## Co to je
 
-Bílá myš utíká ze středu labyrintu ven. Čistý JavaScript (ES moduly), celé to
-běží na HTML `<canvas>`. Bez frameworků, bez závislostí, bez build kroku.
+Bílá myš utíká ze středu labyrintu ven – ale **ne dřív, než posbírá všechen
+sýr**: teprve poslední kousek otevře vrátka do myšího ráje. Čistý JavaScript
+(ES moduly), celé to běží na HTML `<canvas>`. Bez frameworků, bez závislostí,
+bez build kroku.
 
 Hra je stavěná podle stejných pravidel jako `joseftraxler/cube-runner` – stejná
 architektura (`Game` řídí, entity a prostředí se starají samy o sebe), stejný
@@ -67,6 +69,17 @@ o sebe.**
   `if (theme === …)` v `game.js` znamená, že v `Theme` chybí metoda.
   Sama `Theme` je zároveň prostředí levelů bez tématu (kamenné katakomby), takže
   si každý svět přepisuje jen to, čím se liší.
+- **Východ otevírá poslední sýr.** Jestli jsou vrátka zavřená, ví `Level`
+  (`exitOpen`, `isBarred`) – sýr si drží `Level`, takže to nikam jinam nepatří.
+  Kolize se ptají na `blocks` (zeď **nebo** zavřená mříž), tvar mapy dál na
+  `isWall`: dosvit, vzdálenosti i plánek musí ukazovat celý labyrint, jinak by
+  východ do otevření zmizel. `Game` z toho řeší jen to, co je jeho: kdy vrátka
+  cvakla (`gateOpen` kvůli animaci a zvuku) a že útěk platí až otevřenými vrátky.
+- **Za východem je ráj, ne zeď.** Východ leží v obvodové zdi a na druhou stranu
+  z něj vede ven (`Level.exitOut`, `exitAngle`); tam se místo dlaždice zdi kreslí
+  louka se sýrovými koly (`Theme.drawExit`, `drawParadise`, `drawGate`) a po
+  doběhnutí tam myš vyběhne (`Mouse.runFree`, krokuje ji `Game.update` ve stavu
+  `complete`). Bez toho by cíl celé hry byl puntík ve slepé uličce.
 - **Časování pastí je čistá funkce místa a času** (`js/traps.js`). Sklapovačka
   ani propadlo si nic nepamatují a nespouští je myš – jen hodiny. Bez toho by
   generátor nemohl level odsimulovat a ověření průchodnosti by přestalo platit.
@@ -94,7 +107,9 @@ Z toho plynou dvě pravidla:
 
 - **Kresba nesmí mít „nahoře“.** Dlaždice podlahy i zdi se otáčejí s labyrintem,
   takže cokoliv, co dává smysl jen v jedné poloze (stín zleva, tráva navrchu),
-  bude jednou vzhůru nohama. Ozdoby drž souměrné.
+  bude jednou vzhůru nohama. Ozdoby drž souměrné. Jediná výjimka jsou vrátka do
+  ráje: ta nemají nahoře, ale **ven** (`Level.exitAngle`) – a to se otáčí spolu
+  se zdí, ve které stojí.
 - **Světlo a atmosféra se nekreslí do světa, ale přes něj.** `Game.drawLamp`,
   `Game.drawFog` a `Theme.drawAir` běží až po `ctx.restore()`, bez otáčení – je
   to světlo, které myš nese s sebou, ne kus mapy.
@@ -109,8 +124,10 @@ jak dlouho a jak moc hráč drží.
 ## Minimapa: jediné místo, které se neotáčí
 
 V pravém horním rohu je plánek celého labyrintu (`Game.drawMinimap`) – slabě
-celý tvar chodeb, přes něj zeleně to, kudy už myš prošla, k tomu východ, doupě
-a tečka s čárkou, kam je myš otočená. **Sever je na plánku nahoře i tehdy, když
+celý tvar chodeb, přes něj zeleně to, kudy už myš prošla, k tomu východ (zavřený
+jen obrysem, otevřený blikavě), doupě, tečky sýra, **který myš viděla a nechala
+ležet**, a tečka s čárkou, kam je myš otočená. Neviděný sýr se nekreslí: sýr je
+povinný, ale najít se pořád musí. **Sever je na plánku nahoře i tehdy, když
 se svět pod myší otáčí**: od toho plánek je, podle otáčející se mapy se plánovat
 nedá. Čárka směru je proto povinná, jinak by hráč nespojil plánek s tím, co vidí.
 
@@ -187,7 +204,10 @@ Tři vstupy, jedna cesta:
   na počítači se náklon jinak vyzkoušet nedá.
 
 Do horního pruhu se na telefonu všechno nevejde, takže `drawHud` texty **měří
-a zkracuje po stupních**: nejdřív zmizí počet pokusů, pak stav sýra.
+a zkracuje po stupních**: nejdřív zmizí počet pokusů, pak stav sýra. Jakmile je
+sýr posbíraný, počítat už není co a na jeho místě svítí zlatě „VÝCHOD OTEVŘEN“.
+Pruh postupu počítá sýr i vzdálenost k východu (`Game.measureProgress`) – bez
+sýra by ukazoval plno i před zavřenými vrátky.
 
 ## Pohybový model
 
@@ -256,6 +276,10 @@ odpouští těsné proběhnutí.
 - **řádky mapy** – legenda: `#` zeď, mezera chodba, `P` doupě uprostřed (start),
   `F` východ v obvodové zdi, `*` sýr, `T` sklapovačka, `H` propadlo, `S` pila,
   `C` kočka.
+- **Sýr je povinný**: dokud v mapě nějaký leží, jsou vrátka ve východu zavřená
+  a myš se o ně zapře jako o zeď. Kolik ho v levelu je, je tím pádem hlavní
+  míra toho, jak dlouho level trvá – každý kousek navíc je zajížďka přes půl
+  labyrintu a po smrti se sbírá znovu od začátku.
 - místo čísla jde předat `{speed, theme}`; jméno tématu si `Game` vymění za
   třídu prostředí (`js/themes/`), takže **kresba i hudba světa jsou v jednom
   souboru**. `'cellar'` je sklep (cihly, hlína, prach ve vzduchu), `'kitchen'`
@@ -265,8 +289,8 @@ odpouští těsné proběhnutí.
   začátku. Bez tématu zůstávají levely 1, 5 a 9; i „žádné téma“ je prostředí
   a taky se střídá.
 
-Mimo mapu je zeď: labyrint je uzavřený a ven vede jen `F`. Sýr je nepovinný,
-level končí doběhnutím k východu.
+Mimo mapu je zeď: labyrint je uzavřený a ven vede jen `F` – a to až
+s posledním sýrem. Level končí proběhnutím otevřenými vrátky.
 
 ## Generování a ověřování úrovní
 
@@ -285,6 +309,12 @@ Pravidla rozmístění, bez kterých se levely rozsypou (`furnish`):
 - **Na dráze pily nesmí být nic jiného** a pila nesmí stát v jediné cestě
   k východu (`is_bridge`) ani v chodbě, která končí slepě.
 - **Kočka nesmí čekat u doupěte** – myš musí mít čas se rozeběhnout.
+- **Sýr nesmí ležet tam, odkud se nedá vycouvat.** Je povinný, takže ho nesmí
+  odříznout pila (generátor ho klade jen tam, kam se dá dojít, i když jsou
+  všechny dráhy pil zazděné) a v levelu s kočkou nesmí ležet v kapse s jediným
+  hrdlem (`in_pocket`): kočka, která do takové chodby vejde za myší, je jistá
+  smrt, a to není hádanka, ale los. Když se všechen plánovaný sýr nevejde, je
+  celý pokus k zahození – tiše ubrat se nesmí.
 - **Cesta k východu musí být aspoň `MIN_RUN`× delší než strana labyrintu**,
   jinak by hráč vyběhl ven dřív, než by zjistil, kudy běží. Je to hlavní páka
   na obtížnost: labyrint má být spletitý, ne rychlý.
@@ -292,7 +322,13 @@ Pravidla rozmístění, bez kterých se levely rozsypou (`furnish`):
   ve které se nedá zabloudit; bez jediné by zase nebylo před kočkou kam uhnout.
   Ve výchozím plánu jich je zhruba desetina strany labyrintu.
 
-Ověření (`find_path`) hledá posloupnost přeběhů **po vrstvách času**: přeběh
+Ověřuje se **celá cesta včetně sýra** (`find_route`): vrátka otevírá poslední
+kousek, takže se od doupěte skládá úsek po úseku (vždycky k nejbližšímu sýru,
+nakonec k východu) a každý další úsek začíná v čase, kdy ten předchozí skončil –
+pasti běží podle hodin, ne podle myši. Nejkratší pořadí to není a být nemusí:
+stačí, že se to takhle dá odjet.
+
+Jeden úsek (`find_path`) hledá posloupnost přeběhů **po vrstvách času**: přeběh
 mezi sousedními buňkami trvá vždycky stejně, takže je čas ve vrstvě přesně daný.
 Když level neprojde, skript skončí chybou a nic nezapíše.
 
@@ -312,9 +348,13 @@ Takový level pak neodpovídá plánu – ověřuj ho přes
 
 `tools/playtest.mjs` totéž ověří proti opravdovému kódu hry: pustí hru
 v Chromiu a **odehraje ji autopilotem** – ten drží myš namířenou na buňku, která
-je k východu nejblíž, před zavřenou pastí zastaví a počká (stejnou brzdou jako
-hráč), pile a kočce uhne a chodbu, kudy to nejde, si odepíše a spočítá cestu
-jinudy. Kam mířit, se drží zlomek vteřiny, ale **jestli se smí jet, se počítá
+je nejblíž k cíli (dokud leží sýr, je cílem nejbližší sýr, pak teprve východ),
+před zavřenou pastí zastaví a počká (stejnou brzdou jako hráč), pile a kočce
+uhne a chodbu, kudy to nejde, si odepíše a spočítá cestu jinudy. Kočku pozná
+**v celé chodbě před sebou, i za ohybem** (`catAhead`): v jednopolíčkové chodbě
+se kolem ní neprotáhne a otočka trvá skoro vteřinu, takže couvnout se musí dřív,
+než si stojí čumák proti čumáku. Rozpočet času platí **na jeden pokus**, protože
+po smrti se sbírá znovu od začátku. Kam mířit, se drží zlomek vteřiny, ale **jestli se smí jet, se počítá
 každý snímek**: past je otevřená sotva vteřinu a půl a na zastaralé rozhodnutí
 se ta chvíle prošvihne. Nekouká
 generátoru do karet: kdyby hra a simulace přestaly sedět, playtest to pozná.
@@ -353,6 +393,9 @@ a jestli má hrát hudba (`setMusicOn`), zvuk o hře nic neví.
   aranžmá), *jak* se to hraje, ví `audio.js`. Nápěvy jsou **napsané** (`PHRASES`),
   ne losované: náhodné tóny dají procházku po stupnici, ne motiv. Level si
   vybere obměnu podle svého čísla, takže dva levely téhož světa nezní stejně.
+- Otevření vrátek má vlastní zvuk i vibraci (`gate`). Hráč je v tu chvíli
+  většinou na druhém konci labyrintu, takže se to jinak nedozví – a je to
+  největší okamžik pokusu.
 - Sklapnutí pasti opodál je slyšet (`Game.hearTraps`) – je to varování, ne
   ozdoba: hráč má poznat rytmus pastí dřív, než k nim doběhne.
 

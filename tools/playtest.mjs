@@ -2,8 +2,10 @@
  * Automatický průchod všemi levely v opravdovém prohlížeči.
  *
  * Skript spustí hru v Chromiu a nechá labyrinty proběhnout **autopilotem**:
- * ten drží myš namířenou na buňku, která je k východu nejblíž, a než ji tam
- * pustí, ověří, jestli tam v tu chvíli nebude sklapnutá past, pila nebo kočka.
+ * ten drží myš namířenou na buňku, která je nejblíž k cíli – dokud v labyrintu
+ * zbývá sýr, je cílem nejbližší sýr, a teprve po posledním kousku východ, který
+ * se tím otevře. Než myš do buňky pustí, ověří, jestli tam v tu chvíli nebude
+ * sklapnutá past, pila nebo kočka.
  * Když ne, **zastaví a počká** (stejnou brzdou jako hráč) a vyrazí, jakmile se
  * past otevře. Hraje se **skutečným kódem hry** (`Game.update`), takže test
  * odhalí jak rozbitý pohyb, tak neprůchodný level.
@@ -18,6 +20,7 @@
  *     node tools/playtest.mjs
  *     node tools/playtest.mjs --level 7      # jen jeden level
  *     node tools/playtest.mjs --headed       # ať je vidět, co se děje
+ *     node tools/playtest.mjs --time 600     # delší rozpočet času na level
  */
 import {createServer} from 'node:http';
 import {readFile} from 'node:fs/promises';
@@ -67,14 +70,25 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
     game.loadLevel();
     game.state = 'playing';
 
+    // Rozpočet času, a to **na jeden pokus**: po smrti se sbírá znovu od
+    // začátku, takže by společný rozpočet na všechny pokusy měřil hlavně to,
+    // kolikrát se cestou umřelo (od toho je `maxDeaths`). Roste s počtem sýra
+    // i s velikostí labyrintu – paušální číslo by u velkých map hlásilo
+    // „selhal“ tam, kde autopilot jen ještě neměl dosbíráno.
+    const budget = seconds
+        ?? 90 + (game.level.cheeseCount + 1) * (game.level.width + game.level.height) * 1.5 / game.runSpeed;
+
     let deaths = 0;
     let elapsed = 0;
+    let attemptFrom = 0;    // odkdy běží tenhle pokus (rozpočet platí na pokus)
 
     // Když se autopilot dlouho nikam nehne (kočka mu hlídkuje před nosem),
     // přestane si na ni hrát a projde kolem – přesně jak by to udělal hráč.
-    let bestProgress = 0;
+    // Měří se to na vzdálenosti k cíli, ne na pruhu postupu v HUD: mezi dvěma
+    // sýry se pruh nehne, i když myš půlku labyrintu přeběhla.
+    let closest = Infinity;
     let stuckFor = 0;
-    const daring = () => stuckFor > 3;
+    const daring = () => stuckFor > 4;
 
     // Když ani obcházení nepomůže, přestane autopilot pilám uhýbat a zkusí to.
     // Umřít a zkusit to jinudy je pořád lepší výsledek testu než stát na místě.
@@ -90,17 +104,41 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
      * pila jezdí sem a tam, nebo místo, kde se to už dvakrát nepovedlo.
      */
     const avoid = new Set();
-    let toExit = new Map();
+    let toGoal = new Map();
+    let anyGoal = new Map();
 
     const key = (x, y) => `${x},${y}`;
 
-    /** Vzdálenosti k východu po chodbách, s obcházením `avoid`. */
-    const replan = () => {
+    /**
+     * Kam se teď běží: dokud v labyrintu leží sýr, za sýrem (za kterýmkoliv –
+     * hledá se od nich všech naráz, takže vyjde ten nejbližší), a teprve když
+     * je posbíraný, k východu. Dřív se k němu běžet nedá: vrátka otevírá až
+     * poslední sýr.
+     */
+    const goals = () => {
         const level = game.level;
-        toExit = new Map();
+        const cheese = level.cheeseCells.filter(c => level.hasCheese(c.x, c.y));
+        if (!cheese.length) return [level.exit];
 
-        const queue = [[level.exit.x, level.exit.y]];
-        toExit.set(key(level.exit.x, level.exit.y), 0);
+        // Sýr, u kterého už to jednou skončilo, si autopilot nechá na potom:
+        // cesta k němu vede pořád, ale mezitím se posbírá zbytek a kočka bude
+        // hlídkovat jinde. Bez toho by se každý další pokus odehrál stejně.
+        const later = cheese.filter(c => !nearGrave(c.x, c.y));
+        return later.length ? later : cheese;
+    };
+
+    /** Umřela už myš v téhle buňce nebo hned vedle? */
+    const nearGrave = (x, y) => {
+        if (graves.has(key(x, y))) return true;
+        return DIRS.some(([dx, dy]) => graves.has(key(x + dx, y + dy)));
+    };
+
+    /** Vzdálenosti k cíli po chodbách. `skip` je to, co se má obejít. */
+    const spread = (from, skip) => {
+        const level = game.level;
+        const dist = new Map();
+        const queue = from.map(c => [c.x, c.y]);
+        for (const [x, y] of queue) dist.set(key(x, y), 0);
 
         for (let head = 0; head < queue.length; head++) {
             const [x, y] = queue[head];
@@ -108,26 +146,41 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
                 const nx = x + dx;
                 const ny = y + dy;
                 const at = key(nx, ny);
-                if (!level.isFree(nx, ny) || toExit.has(at) || avoid.has(at)) continue;
-                toExit.set(at, toExit.get(key(x, y)) + 1);
+                if (!level.isFree(nx, ny) || dist.has(at) || skip.has(at)) continue;
+                dist.set(at, dist.get(key(x, y)) + 1);
                 queue.push([nx, ny]);
             }
         }
+        return dist;
     };
 
-    const routed = () => toExit.has(key(game.mouse.cellX, game.mouse.cellY));
+    /** Přepočítá cestu k cíli – s obcházením `avoid` i bez něj. */
+    const replan = () => {
+        const from = goals();
+        toGoal = spread(from, avoid);
+        anyGoal = spread(from, new Set());
+
+        // Odepsané chodby, které cíl odříznou, jsou k ničemu – sýr je povinný,
+        // takže se k němu musí dojít, i kdyby to tam už jednou nevyšlo.
+        if (avoid.size && !toGoal.has(key(game.mouse.cellX, game.mouse.cellY))) {
+            avoid.clear();
+            toGoal = spread(from, avoid);
+        }
+    };
+
+    const routed = () => toGoal.has(key(game.mouse.cellX, game.mouse.cellY));
 
     /**
-     * Vzdálenost k východu s obcházením. Buňky uvnitř odepsané chodby dostanou
+     * Vzdálenost k cíli s obcházením. Buňky uvnitř odepsané chodby dostanou
      * skutečnou vzdálenost s velkou přirážkou – jinak by v nich myš, která se
      * do nich přece jen dostala, neměla kam jít.
      */
-    const distanceOut = (x, y) => {
-        const planned = toExit.get(key(x, y));
+    const distanceToGoal = (x, y) => {
+        const planned = toGoal.get(key(x, y));
         if (planned !== undefined) return planned;
 
-        const plain = game.level.distanceToExit(x, y);
-        return plain < 0 ? -1 : plain + 100;
+        const plain = anyGoal.get(key(x, y));
+        return plain === undefined ? -1 : plain + 100;
     };
 
     /** Odepíše místo, kde to nejde, a přepočítá cestu. U pily celou její chodbu. */
@@ -159,11 +212,19 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
     /** Všechno, co se hýbe a zabíjí. */
     const dangers = () => [...game.saws, ...game.cats];
 
-    /** Je myši kočka v patách? Pak se před pastí nedá čekat, musí se objíždět. */
+    /**
+     * Je myši kočka v patách? Pak se před pastí nedá čekat, musí se objíždět.
+     * Počítá se i kočka v chodbě před myší: stát před zavřenou pastí čelem ke
+     * kočce je nejhorší možné místo k čekání – než se myš otočí, kočka je u ní.
+     */
     const hunted = () => game.cats.some(cat => {
         const far = Math.hypot(cat.x - game.mouse.x, cat.y - game.mouse.y);
         return far < 3 || (cat.chase > 0 && far < 7);
-    });
+    }) || catAhead(game.mouse.cellX, game.mouse.cellY, facing());
+
+    /** Je některá kočka blíž než tolik buněk? (Vzdušnou čarou – schválně přísně.) */
+    const catWithin = (x, y, cells) =>
+        game.cats.some(cat => Math.hypot(cat.x - x - 0.5, cat.y - y - 0.5) < cells);
 
     /** Kam myš zrovna kouká, zaokrouhleno na světovou stranu. */
     const facing = () => {
@@ -174,8 +235,54 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
     /** Co brání vběhnout do téhle buňky (`null` = nic). */
     const blocker = (x, y, dir, t) => {
         if (!safe(x, y, t)) return game.level.trapAt(x, y) ? 'trap' : 'cat';
+        if (!daring() && catAhead(x, y, dir)) return 'cat';
+        // Do slepé chodby se s kočkou za zády nechodí, i kdyby v ní ležel sýr:
+        // couvnout se odtamtud nedá a kočka je přesně tam, kde se otáčí.
+        if (!daring() && !hasWayOut(x, y, dir) && catWithin(x, y, 6)) return 'cat';
         if (!reckless() && !runSafe(x, y, dir, t)) return 'saw';
         return null;
+    };
+
+    /**
+     * Je v chodbě za touhle buňkou kočka? Proti kočce se v jednopolíčkové
+     * chodbě neprotáhne, takže se do takové chodby nesmí vjet, dokud v ní
+     * kočka je – a je to potřeba poznat **dřív**, než si stojí čumák proti
+     * čumáku: otočka trvá skoro vteřinu. Za nejbližší odbočkou se hlídat
+     * přestává, tam už je kam uhnout.
+     */
+    const catAhead = (x, y, dir) => {
+        if (!game.cats.length) return false;
+
+        let cx = x;
+        let cy = y;
+        let heading = dir;
+
+        // Dohlédne se tak daleko, jak vidí myš (`SIGHT`): kočku v chodbě musí
+        // poznat dřív, než si stojí čumák proti čumáku.
+        for (let k = 0; k < 9; k++) {
+            if (!game.level.isFree(cx, cy)) return false;
+            if (game.cats.some(cat => cat.cellX === cx && cat.cellY === cy)) return true;
+
+            const ways = game.level.exits(cx, cy);
+            if (k > 0 && ways > 2) return false;    // křižovatka: tam už je kam uhnout
+
+            // Chodba se sleduje i za roh – kočka, která přichází zpoza ohybu,
+            // je pořád v téže chodbě a proti ní se neprotáhne.
+            let next = null;
+            for (const turn of [0, 1, 3]) {
+                const way = (heading + turn) % 4;
+                if (game.level.isFree(cx + DIRS[way][0], cy + DIRS[way][1])) {
+                    next = way;
+                    break;
+                }
+            }
+            if (next === null) return false;
+
+            heading = next;
+            cx += DIRS[heading][0];
+            cy += DIRS[heading][1];
+        }
+        return false;
     };
 
     /**
@@ -247,7 +354,9 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
 
         for (let k = 0; k < 9; k++) {
             if (!game.level.isFree(cx, cy)) return false;
-            if (game.level.isExit(cx, cy)) return true;
+            // Zavřená vrátka nejsou úniková cesta – dokud se neotevřou, končí
+            // chodba u východu stejně slepě jako u zdi.
+            if (game.level.isExit(cx, cy)) return game.level.exitOpen;
 
             const ways = game.level.exits(cx, cy);
             if (ways > 2) return true;
@@ -288,8 +397,8 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
     };
 
     /**
-     * Kam zamířit. Autopilot drží nejkratší cestu k východu a **před zavřenou
-     * pastí radši počká** – otočí se čelem do zdi, kde myš běží na místě, a jde
+     * Kam zamířit. Autopilot drží nejkratší cestu k cíli (sýr, pak východ)
+     * a **před zavřenou pastí radši počká** – otočí se čelem do zdi, kde myš běží na místě, a jde
      * dál, až se past otevře. Objížďka se hledá jen před kočkou, protože ta se
      * sama pohne a čekat na ni nemá smysl.
      */
@@ -305,7 +414,7 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
             const ny = y + DIRS[dir][1];
             if (!game.level.isFree(nx, ny)) continue;
 
-            const dist = distanceOut(nx, ny);
+            const dist = distanceToGoal(nx, ny);
             if (dist < 0) continue;
 
             // Otáčení něco stojí, a otočka o 180° hodně: než se myš stočí,
@@ -335,9 +444,15 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
         // a zůstane na ni namířená, aby mohla vyrazit hned, jak se otevře.
         // Pilu jde přečkat taky, ale ne vždycky: v chodbě, kterou projíždí
         // celou, ji myš stejně dojede, takže se po chvíli hledá objížďka.
-        if (!hunted() && (options[0].blocker === 'trap' || (options[0].blocker === 'saw' && !daring()))) {
-            return options[0];
-        }
+        //
+        // A kočka? Ta je taky jen hlídka: dokud není myši v patách (`hunted`),
+        // vyplatí se počkat na křižovatce, než přejde – zajížďka kolem půlky
+        // labyrintu stojí víc než pár vteřin čekání. Když se čekáním nikam
+        // nedostane, `daring()` po chvíli čekání ukončí.
+        const wait = options[0].blocker === 'trap'
+            || options[0].blocker === 'cat'
+            || (options[0].blocker === 'saw' && !daring());
+        if (!hunted() && wait) return options[0];
 
         return options.find(o => !o.blocker) ?? options[0];
     };
@@ -359,6 +474,10 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
         if (side) game.handleAction(side);
     };
 
+    /** V kolik hodin myš do téhle buňky doběhne (pasti se řídí hodinami). */
+    const arrival = target => game.clock
+        + Math.hypot(target.x + 0.5 - game.mouse.x, target.y + 0.5 - game.mouse.y) / game.runSpeed;
+
     /** Zamíří čumákem na střed dané buňky. */
     const aimAt = target => {
         const mouse = game.mouse;
@@ -377,6 +496,29 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
     let decision = null;
     let decidedAt = -1;
     let decidedIn = null;
+
+    /**
+     * Kam z pasti vyběhnout: sousední buňka, ve které se zrovna neumírá a ke
+     * které je to nejmenší otočka – z pasti se musí ven co nejrychleji.
+     */
+    const escapeCell = () => {
+        const mouse = game.mouse;
+        let best = null;
+        let cheapest = Infinity;
+
+        for (let dir = 0; dir < 4; dir++) {
+            const x = mouse.cellX + DIRS[dir][0];
+            const y = mouse.cellY + DIRS[dir][1];
+            if (!game.level.isFree(x, y) || deadlyNow(x, y)) continue;
+
+            const turn = Math.abs(angleDiff(mouse.heading, Math.atan2(DIRS[dir][1], DIRS[dir][0])));
+            if (turn < cheapest) {
+                cheapest = turn;
+                best = {x, y};
+            }
+        }
+        return best;
+    };
 
     /** Je v téhle buňce zrovna teď (nebo za okamžik) smrt? */
     const deadlyNow = (x, y) => {
@@ -409,6 +551,19 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
             }
         }
 
+        // Stojí myš přímo na pasti, která se chystá sklapnout? Pak se nebrzdí,
+        // ale **vybíhá** – čeká se vedle pasti, ne na ní. Bez tohohle by se
+        // zabrzdila přesně tam, kde to za chvíli sklapne.
+        if (deadlyNow(mouse.cellX, mouse.cellY)) {
+            const away = escapeCell();
+            if (away) {
+                decision = null;
+                brake(false);
+                aimAt(away);
+                return;
+            }
+        }
+
         const live = touched.find(t => deadlyNow(t.x, t.y));
         if (live) {
             decision = null;
@@ -417,10 +572,19 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
             return;
         }
 
-        // Kam se míří, se drží chvíli (jinak by se myš na místě kývala), ale
-        // jestli se smí jet, se počítá **každý snímek**: past se otevře na
+        // Čekání na past se **nepřehodnocuje**: kdyby autopilot mezitím zkusil
+        // jinudy a zase se vrátil, otáčel by se na hraně pasti – a při otočce
+        // se do ní zanese. Čeká se, dokud past nepovolí (nebo dokud nepřijde
+        // kočka, před kterou se stát nedá).
+        // …ale ne donekonečna: past, která se nechce otevřít (protože ji hlídá
+        // ještě něco jiného), se po pár vteřinách přehodnotí jako všechno ostatní.
+        const holding = decision && !hunted() && game.clock - decidedAt < 4
+            && blocker(decision.x, decision.y, decision.dir ?? facing(), arrival(decision)) === 'trap';
+
+        // Kam se míří, se jinak drží chvíli (jinak by se myš na místě kývala),
+        // ale jestli se smí jet, se počítá **každý snímek**: past se otevře na
         // vteřinu a půl a na zastaralé rozhodnutí se ta chvíle prošvihne.
-        if (decidedIn !== here || game.clock - decidedAt > 0.4) {
+        if (!holding && (decidedIn !== here || game.clock - decidedAt > 0.4)) {
             decision = plan();
             decidedAt = game.clock;
             decidedIn = here;
@@ -434,18 +598,42 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
 
         // Před zavřenou pastí se stojí a čeká, ale čumák zůstane namířený –
         // jakmile se otevře, stačí se rozeběhnout.
-        const when = game.clock
-            + Math.hypot(decision.x + 0.5 - mouse.x, decision.y + 0.5 - mouse.y) / game.runSpeed;
-        brake(!!blocker(decision.x, decision.y, decision.dir ?? facing(), when));
+        brake(!!blocker(decision.x, decision.y, decision.dir ?? facing(), arrival(decision)));
         aimAt(decision);
     };
 
-    /** Kam teď zamířit: pryč od hrozby, na cestu k východu, nebo do zdi čekat. */
+    /**
+     * Je před myší do téhle vzdálenosti odbočka? V jednopolíčkové chodbě se
+     * kolem kočky proklouznout nedá, takže je to jediné místo, kde jí jde uhnout.
+     */
+    const turnoffWithin = cells => {
+        const dir = facing();
+        let x = game.mouse.cellX;
+        let y = game.mouse.cellY;
+
+        for (let k = 1; k <= cells; k++) {
+            x += DIRS[dir][0];
+            y += DIRS[dir][1];
+            if (!game.level.isFree(x, y)) return false;
+            if (game.level.exits(x, y) > 2) return true;
+        }
+        return false;
+    };
+
+    /** Kam teď zamířit: pryč od hrozby, na cestu k cíli, nebo do zdi čekat. */
     const plan = () => {
         const mouse = game.mouse;
+        const threat = threatAhead();
 
-        // Před pilou ani kočkou se nečeká – od těch se utíká, myš je rychlejší
-        if (threatAhead() < 2.8) {
+        // Před pilou ani kočkou se nečeká – od těch se utíká, myš je rychlejší.
+        // V úzké chodbě se ale musí couvnout **dřív**: otočka trvá skoro
+        // vteřinu a než se myš stočí, kočka je u ní. Proto se couvá i z dálky,
+        // pokud mezi myší a kočkou není odbočka, kudy by se dalo uhnout.
+        // Když se ani couváním nikam nedostane (kočka hlídkuje z jedné strany,
+        // pila z druhé), přestane uhýbat a projede to – stát mezi dvěma
+        // hrozbami a kývat se je nejhorší možný výsledek testu.
+        const dodge = threat < 2.8 || (threat < 5.5 && !daring() && !turnoffWithin(Math.floor(threat)));
+        if (dodge && !reckless()) {
             const away = {x: mouse.cellX - DIRS[facing()][0], y: mouse.cellY - DIRS[facing()][1]};
             if (game.level.isFree(away.x, away.y) && hasWayOut(away.x, away.y, back(facing()))) return away;
         }
@@ -456,7 +644,16 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
     const samples = [];
     const recent = [];   // posledních pár desetin sekundy kvůli rozboru smrti
 
-    for (let frame = 0; frame * dt < seconds; frame++) {
+    let taken = -1;
+
+    for (let frame = 0; elapsed - attemptFrom < budget; frame++) {
+        // Sebraný sýr mění cíl (a poslední otevírá východ), takže se přepočítá
+        if (taken !== game.cheeseTaken) {
+            taken = game.cheeseTaken;
+            closest = Infinity;
+            replan();
+        }
+
         steer();
         game.update(dt);
         elapsed += dt;
@@ -477,11 +674,13 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
         if (trace && frame % Math.round(0.5 / dt) === 0) {
             const mouse = game.mouse;
             samples.push(`${elapsed.toFixed(1)}s ${mouse.cellX},${mouse.cellY}` +
-                `${mouse.stalled ? ' stojí' : ''} k východu ${game.level.distanceToExit(mouse.cellX, mouse.cellY)}`);
+                `${mouse.stalled ? ' stojí' : ''} k cíli ${distanceToGoal(mouse.cellX, mouse.cellY)}` +
+                ` (sýr ${game.cheeseTaken}/${game.level.cheeseCount})`);
         }
 
-        if (game.progress > bestProgress + 0.001) {
-            bestProgress = game.progress;
+        const toTarget = distanceToGoal(game.mouse.cellX, game.mouse.cellY);
+        if (toTarget >= 0 && toTarget < closest) {
+            closest = toTarget;
             stuckFor = 0;
         } else {
             stuckFor += dt;
@@ -499,7 +698,7 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
         }
         if (game.state === 'dead') {
             deaths++;
-            bestProgress = 0;
+            closest = Infinity;
             stuckFor = 0;
 
             const grave = key(game.mouse.cellX, game.mouse.cellY);
@@ -520,13 +719,16 @@ async function playInPage([levelIndex, dt, seconds, maxDeaths, trace]) {
             }
 
             game.retry();
+            attemptFrom = elapsed;
+            taken = -1;
             replan();
         }
     }
 
     return {
         ok: false,
-        why: `nedoběhla do ${seconds} s (postup ${Math.round(game.progress * 100)} %)`,
+        why: `nedoběhla do ${Math.round(budget)} s (postup ${Math.round(game.progress * 100)} %,`
+            + ` ${deaths}× smrt, celkem ${Math.round(elapsed)} s)`,
         deaths,
         samples: [...samples, '--- poslední dvě vteřiny ---', ...recent],
     };
@@ -536,6 +738,8 @@ const args = process.argv.slice(2);
 const only = args.includes('--level') ? Number(args[args.indexOf('--level') + 1]) : null;
 const headed = args.includes('--headed');
 const trace = args.includes('--trace');   // vypíše, kudy autopilot běžel
+const deaths = args.includes('--deaths') ? Number(args[args.indexOf('--deaths') + 1]) : 8;
+const seconds = args.includes('--time') ? Number(args[args.indexOf('--time') + 1]) : null;   // jinak podle mapy
 
 const {chromium} = createRequire(import.meta.url)('playwright');
 const server = await serve();
@@ -551,7 +755,7 @@ const count = await page.evaluate(() => window.labyrinth.levels.length);
 for (let index = 0; index < count; index++) {
     if (only && index + 1 !== only) continue;
 
-    const result = await page.evaluate(playInPage, [index, 1 / 120, 360, 8, trace]);
+    const result = await page.evaluate(playInPage, [index, 1 / 120, seconds, deaths, trace]);
     if (result.ok) {
         console.log(`level ${index + 1}: venku za ${result.seconds} s, ${result.deaths}× smrt, sýr ${result.cheese}`);
     } else {

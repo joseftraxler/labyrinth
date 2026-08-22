@@ -152,10 +152,14 @@ export class Runner extends Entity {
         this.place();
     }
 
-    /** Je v tomhle směru z buňky, do které zvíře vbíhá, volno? */
+    /**
+     * Je v tomhle směru z buňky, do které zvíře vbíhá, volno? Zavřená mříž
+     * východu je zeď i pro kočku (`blocks`) – ta o ni ale nezavadí často,
+     * protože do ráje za východem stejně nemá kudy pokračovat.
+     */
     free(dir) {
         const d = DIRS[dir];
-        return this.game.level.isFree(this.cx + d.x, this.cy + d.y);
+        return !this.game.level.blocks(this.cx + d.x, this.cy + d.y);
     }
 
     /**

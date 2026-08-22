@@ -130,6 +130,12 @@ export class Sound {
                 this.#thud(t, 90, 0.3);
                 this.#slide(t, 440, 70, 0.5, 'sawtooth');
                 break;
+            case 'gate':
+                // Otevřená vrátka: rozsvícený kvintakord zdola nahoru. Zní jinak
+                // než sýr i než doběh – hráč ho slyší z druhého konce labyrintu
+                // a musí poznat, že se právě otevřela cesta ven.
+                [0, 7, 12, 19].forEach((semi, i) => this.#blip(t + i * 0.06, 523 * 2 ** (semi / 12), 0.5, 'sine', 0.13));
+                break;
             case 'complete':
                 [0, 4, 7, 12].forEach((semi, i) => this.#blip(t + i * 0.09, 440 * 2 ** (semi / 12), 0.16, 'triangle'));
                 break;

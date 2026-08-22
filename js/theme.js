@@ -252,28 +252,171 @@ export class Theme {
         ctx.restore();
     }
 
-    /** Východ z labyrintu – světlo zvenčí, jediné místo, kam se myš chce dostat. */
-    drawExit(ctx, cx, cy, size) {
-        const pulse = 0.82 + 0.18 * Math.sin(this.clock * 3);
-
+    /**
+     * Východ z labyrintu – **vrátka do myšího ráje**. Za nimi je louka se
+     * sýrovými koly, ne slepá zeď: z chodby má být poznat, že tudy cesta
+     * nekončí, ale začíná.
+     *
+     * `out` je úhel ven z labyrintu (`Level.exitAngle`) a je to jediná kresba
+     * ve hře, která nějaké natočení má. Pravidlo „kresba nesmí mít nahoře“ tím
+     * porušené není: vrátka nemají nahoře, mají **ven** – a to se otáčí spolu
+     * se zdí, ve které stojí.
+     *
+     * `open` je 0 (zavřeno, v labyrintu ještě zbývá sýr) až 1 (dokořán).
+     * Otevírá je `Game`, když myš sebere poslední sýr.
+     */
+    drawExit(ctx, cx, cy, size, out, open) {
         ctx.save();
         ctx.translate(cx, cy);
+        ctx.rotate(out);
 
-        const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, size * 0.95 * pulse);
-        glow.addColorStop(0, 'rgba(255, 246, 214, 0.95)');
-        glow.addColorStop(0.45, 'rgba(255, 226, 150, 0.45)');
-        glow.addColorStop(1, 'rgba(255, 226, 150, 0)');
-        ctx.fillStyle = glow;
-        ctx.beginPath();
-        ctx.arc(0, 0, size * 0.95 * pulse, 0, TAU);
-        ctx.fill();
-
-        ctx.fillStyle = '#fff6d6';
-        ctx.beginPath();
-        ctx.arc(0, 0, size * 0.26, 0, TAU);
-        ctx.fill();
+        this.drawParadise(ctx, size, open);
+        this.drawGate(ctx, size, open);
 
         ctx.restore();
+    }
+
+    /**
+     * Myší ráj za vrátky: světlo, louka a sýrová kola. Kreslí se ven od
+     * východu (+x) a **měkce se rozplývá** – za východem už žádná mapa není,
+     * takže ostrá hrana by vypadala jako vystřižený papír.
+     *
+     * Zavřenými vrátky je vidět jen kousek světla; louka se rozsvítí s `open`.
+     */
+    drawParadise(ctx, size, open) {
+        const base = ctx.globalAlpha;       // dosvit – ráj svítí jen tak, jak je na něj vidět
+        const day = 0.28 + 0.72 * open;
+
+        const sky = ctx.createRadialGradient(size * 1.7, 0, size * 0.15, size * 1.7, 0, size * 3.1);
+        sky.addColorStop(0, `rgba(255, 251, 226, ${0.95 * day})`);
+        sky.addColorStop(0.35, `rgba(216, 240, 178, ${0.82 * day})`);
+        sky.addColorStop(0.72, `rgba(118, 194, 128, ${0.42 * day})`);
+        sky.addColorStop(1, 'rgba(118, 194, 128, 0)');
+        ctx.fillStyle = sky;
+        ctx.beginPath();
+        ctx.arc(size * 1.7, 0, size * 3.1, 0, TAU);
+        ctx.fill();
+
+        if (open <= 0.02) return;
+
+        // Louka i sýry se rozkládají **do vějíře před vrátky**: z chodby je vidět
+        // jen výseč, tak ať v ní něco je. Místa se berou z `noise`, ne z náhody –
+        // jinak by se louka v každém snímku přeskládala.
+        const fan = (i, count, spread, near, far) => {
+            const angle = (i / (count - 1) - 0.5) * spread;
+            const reach = size * (near + noise(i * 7.3 + count) * (far - near));
+            return {x: Math.cos(angle) * reach, y: Math.sin(angle) * reach};
+        };
+
+        ctx.strokeStyle = `rgba(70, 146, 80, ${0.6 * open})`;
+        ctx.lineWidth = size * 0.032;
+        ctx.lineCap = 'round';
+        for (let i = 0; i < 30; i++) {
+            const at = fan(i, 30, 2.1, 0.9, 3);
+            const sway = Math.sin(this.clock * 1.6 + i) * size * 0.05;
+            ctx.beginPath();
+            ctx.moveTo(at.x, at.y);
+            ctx.quadraticCurveTo(at.x + sway * 0.5, at.y - size * 0.09, at.x + sway, at.y - size * 0.18);
+            ctx.stroke();
+        }
+
+        // Sýrová kola – kvůli nim se do ráje běží
+        ctx.globalAlpha = base * open;
+        for (let i = 0; i < 6; i++) {
+            const at = fan(i, 6, 1.7, 1.1, 2.6);
+            const bob = Math.sin(this.clock * 2 + i * 1.7) * size * 0.03;
+            this.drawCheese(ctx, at.x, at.y + bob, size * 0.8, this.clock + i * 2.1);
+        }
+        ctx.globalAlpha = base;
+
+        // Jiskry, které z otevřených vrátek odlétají ven – aby bylo poznat,
+        // kterým směrem se běží
+        ctx.fillStyle = `rgba(255, 250, 214, ${0.75 * open})`;
+        for (let i = 0; i < 10; i++) {
+            const t = (this.clock * 0.4 + noise(i * 2.1)) % 1;
+            const px = size * (0.4 + t * 2.4);
+            const py = size * (noise(i * 6.7) - 0.5) * 1.6 * (0.35 + t);
+            ctx.beginPath();
+            ctx.arc(px, py, size * 0.035 * (1 - t), 0, TAU);
+            ctx.fill();
+        }
+    }
+
+    /**
+     * Vrátka v obvodové zdi: dvě křídla na veřejích, která se s posledním
+     * sýrem rozevřou ven. Zavřená mají uprostřed sýrový zámek – ať je na první
+     * pohled jasné, čím se otevírají.
+     */
+    drawGate(ctx, size, open) {
+        const jamb = size * 0.46;               // veřeje na krajích chodby
+        const swing = open * Math.PI * 0.56;    // dokořán leží křídla podél zdi
+
+        // Práh: světlé kameny na hranici labyrintu a louky
+        ctx.fillStyle = 'rgba(226, 218, 196, 0.55)';
+        ctx.fillRect(-size * 0.1, -jamb, size * 0.2, jamb * 2);
+        ctx.strokeStyle = 'rgba(60, 52, 40, 0.35)';
+        ctx.lineWidth = size * 0.015;
+        for (const at of [-0.45, 0, 0.45]) {
+            ctx.beginPath();
+            ctx.moveTo(-size * 0.1, at * jamb);
+            ctx.lineTo(size * 0.1, at * jamb);
+            ctx.stroke();
+        }
+
+        // Světlo, které otevřenými vrátky padá zpátky do chodby
+        if (open > 0.02) {
+            const spill = ctx.createLinearGradient(0, 0, -size * 1.4, 0);
+            spill.addColorStop(0, `rgba(255, 246, 206, ${0.4 * open})`);
+            spill.addColorStop(1, 'rgba(255, 246, 206, 0)');
+            ctx.fillStyle = spill;
+            ctx.fillRect(-size * 1.4, -jamb, size * 1.4, jamb * 2);
+        }
+
+        // Křídla vrátek. Otáčejí se kolem veřeje: zavřená se potkávají
+        // uprostřed průchodu, otevřená leží podél zdi.
+        for (const side of [-1, 1]) {
+            ctx.save();
+            ctx.translate(0, side * jamb);
+            ctx.rotate(side * (swing - Math.PI / 2));
+
+            const thick = size * 0.055;
+            ctx.fillStyle = '#c98f4e';
+            roundRect(ctx, 0, -thick, jamb, thick * 2, thick * 0.7);
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(58, 34, 12, 0.6)';
+            ctx.lineWidth = size * 0.018;
+            ctx.stroke();
+
+            ctx.strokeStyle = 'rgba(58, 34, 12, 0.35)';
+            for (let i = 1; i < 3; i++) {
+                const at = jamb * i / 3;
+                ctx.beginPath();
+                ctx.moveTo(at, -thick);
+                ctx.lineTo(at, thick);
+                ctx.stroke();
+            }
+
+            ctx.restore();
+        }
+
+        // Veřeje – kamenné patky, ve kterých jsou křídla zavěšená
+        ctx.fillStyle = '#b9b3a0';
+        ctx.strokeStyle = 'rgba(40, 34, 24, 0.5)';
+        ctx.lineWidth = size * 0.02;
+        for (const side of [-1, 1]) {
+            ctx.beginPath();
+            ctx.arc(0, side * jamb, size * 0.1, 0, TAU);
+            ctx.fill();
+            ctx.stroke();
+        }
+
+        // Sýrový zámek na spáře mezi křídly – mizí, jak se vrátka otevírají
+        if (open < 0.98) {
+            const was = ctx.globalAlpha;
+            ctx.globalAlpha = was * (1 - open);
+            this.drawCheese(ctx, 0, 0, size * 0.5, this.clock);
+            ctx.globalAlpha = was;
+        }
     }
 
     /** Doupě, ze kterého se vybíhá. Kreslí se pod myš, takže drž kresbu nízkou. */

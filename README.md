@@ -1,7 +1,8 @@
 # Labyrint
 
-Bílá myš utíká ze středu labyrintu ven. Běží sama, ty jí říkáš jen kudy –
-a labyrint se pod ní otáčí, protože myš míří vždycky vzhůru.
+Bílá myš utíká ze středu labyrintu ven – ale ne dřív, než posbírá všechen sýr:
+teprve poslední kousek otevře vrátka do myšího ráje. Běží sama, ty jí říkáš jen
+kudy – a labyrint se pod ní otáčí, protože myš míří vždycky vzhůru.
 
 ![Náhled hry](docs/preview.png)
 
@@ -11,13 +12,16 @@ statické soubory. Jde nainstalovat na plochu telefonu a hrát offline.
 
 ## Jak se to hraje
 
-Myš vyběhne z doupěte uprostřed labyrintu a hledá jediný východ v obvodové zdi.
-Vidí přitom jen kousek chodeb kolem sebe – co je za rohem, zjistí, až tam
-doběhne. Cestou se dá posbírat sýr, ale k útěku ho potřeba není.
+Myš vyběhne z doupěte uprostřed labyrintu a sbírá po chodbách sýr. Vidí přitom
+jen kousek okolo sebe – co je za rohem, zjistí, až tam doběhne. **Dokud v mapě
+zbývá jediný kousek sýra, jsou vrátka ve východu zavřená** a myš se o ně zapře
+jako o zeď; posledním sýrem cvaknou, otevřou se dokořán a za nimi je vidět
+louka se sýrovými koly. Tam se běží.
 
 Běží se pomalu a rozvážně: tohle není hra na rychlost, ale na to vyznat se
 v labyrintu. Pomáhá **plánek v pravém horním rohu** – ukazuje celý labyrint,
-zeleně to, kudy už jsi prošla, kde je východ a kterým směrem myš zrovna míří.
+zeleně to, kudy už jsi prošla, kde je východ (zavřený jen obrysem), kde zůstal
+ležet sýr, na který jsi cestou narazila, a kterým směrem myš zrovna míří.
 Na plánku je sever nahoře, i když se labyrint pod myší otáčí.
 
 | Co chceš | Klávesnice | Dotyk a myš | Náklon |
@@ -66,7 +70,8 @@ na správnou chvíli.
   cesta, takže se dají obejít – nebo přeběhnout, když zrovna odjedou.
 - **Kočky** hlídkují labyrintem a co uvidí rovnou chodbou, to honí. Jsou
   pomalejší než myš a vidí kratší kus chodby, takže se jim dá utéct – ale
-  ne do slepé uličky.
+  ne do slepé uličky. Povinný sýr proto v koutě s jedinou cestou ven nikdy
+  neleží: kočka za zády tam je jistá smrt, a to už by nebyla hádanka.
 
 ## Světy
 
@@ -98,8 +103,8 @@ docker compose up
 
 Mapy negeneruje náhoda, ale `tools/gen_mazes.py`: vyhloubí labyrint, probourá
 pár zdí navíc (aby vedla víc než jedna cesta), prorazí východ co nejdál od
-doupěte, rozmístí nástrahy – a pak **simulací ověří, že se level dá projít**.
-Když neprojde, nic se nezapíše.
+doupěte, rozmístí nástrahy se sýrem – a pak **simulací ověří, že se level dá
+projít**. Když neprojde, nic se nezapíše.
 
 ```bash
 python3 tools/gen_mazes.py           # přegeneruje js/levels/*.js
@@ -108,9 +113,13 @@ node tools/playtest.mjs              # projde všech 10 levelů v Chromiu
 node tools/tilttest.mjs              # ovládání nakláněním s emulovaným čidlem
 ```
 
+Ověřuje se přitom celá cesta včetně sýra – bez posledního kousku se vrátka
+neotevřou, takže „průchodný“ znamená „dá se posbírat všechno a doběhnout ven“.
+
 Playtest hru opravdu hraje: pustí ji v prohlížeči a odehraje autopilotem, který
-drží nejkratší cestu k východu, před zavřenou pastí počká a pile s kočkou uhne.
-Je to zároveň kontrola, že si kód hry a simulace v generátoru odpovídají.
+si to namíří na nejbližší sýr, pak k východu, před zavřenou pastí počká a pile
+s kočkou uhne. Je to zároveň kontrola, že si kód hry a simulace v generátoru
+odpovídají.
 
 ## Licence
 

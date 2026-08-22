@@ -2,7 +2,9 @@
 """Generátor labyrintů pro hru Labyrint.
 
 Postaví labyrint, nastraží do něj pasti a **simulací ověří, že se dá projít** –
-teprve pak zapíše `js/levels/levelX.js`. Když level neprojde, skript skončí
+a to včetně sýra: vrátka do ráje otevírá až poslední kousek, takže se ověřuje
+cesta, která posbírá všechen sýr a teprve pak vyběhne ven. Teprve pak skript
+zapíše `js/levels/levelX.js`. Když level neprojde, skript skončí
 chybou a nic nezapíše: raději žádná mapa než nehratelná.
 
 Pohybový model i časování pastí jsou tady **kopií** toho, co má hra
@@ -68,21 +70,25 @@ def pit_open(x, y, clock):
 # Světy se **střídají** – hráč tak vidí všechna prostředí od začátku a žádná
 # část hry nevypadá dlouho stejně. Bez tématu (kamenné katakomby) jsou levely
 # 1, 5 a 9; i „žádné téma“ je prostředí a taky se střídá.
+# Sýr je **povinný** – poslední kousek otevírá vrátka ven – takže jeho počet
+# není ozdoba, ale hlavní míra toho, jak dlouho level trvá: každý sýr navíc je
+# zajížďka přes půl labyrintu a po smrti se sbírá znovu od začátku. Proto je
+# jich míň, než když byl jen za body, a přibývají pomalu.
 LEVEL_PLAN = [
     # size = strana labyrintu v buňkách (vždy liché), speed = % základní rychlosti.
     # Nástrahy přibývají po druzích, ne hromadně: první level je jen labyrint
     # se dvěma sklapovačkami, propadla se přidají ve druhém, pily ve třetím
     # a kočka až ve čtvrtém – každý svět tak přinese jednu novou věc k naučení.
-    dict(size=15, speed=100, theme=None,      loops=2, snaps=2, pits=0, saws=0, cats=0, cheese=4),
-    dict(size=17, speed=102, theme="cellar",  loops=2, snaps=4, pits=2, saws=0, cats=0, cheese=5),
-    dict(size=19, speed=104, theme="kitchen", loops=3, snaps=5, pits=2, saws=1, cats=0, cheese=5),
-    dict(size=21, speed=106, theme="sewer",   loops=4, snaps=4, pits=4, saws=1, cats=1, cheese=6),
-    dict(size=23, speed=108, theme=None,      loops=5, snaps=6, pits=4, saws=1, cats=1, cheese=6),
-    dict(size=25, speed=110, theme="cellar",  loops=6, snaps=7, pits=4, saws=2, cats=1, cheese=7),
-    dict(size=27, speed=112, theme="kitchen", loops=7, snaps=8, pits=4, saws=2, cats=2, cheese=7),
-    dict(size=29, speed=114, theme="sewer",   loops=8, snaps=7, pits=6, saws=2, cats=2, cheese=8),
-    dict(size=31, speed=116, theme=None,      loops=10, snaps=8, pits=6, saws=3, cats=2, cheese=8),
-    dict(size=33, speed=120, theme="cellar",  loops=11, snaps=9, pits=7, saws=3, cats=2, cheese=9),
+    dict(size=15, speed=100, theme=None,      loops=2, snaps=2, pits=0, saws=0, cats=0, cheese=3),
+    dict(size=17, speed=102, theme="cellar",  loops=2, snaps=4, pits=2, saws=0, cats=0, cheese=3),
+    dict(size=19, speed=104, theme="kitchen", loops=3, snaps=5, pits=2, saws=1, cats=0, cheese=4),
+    dict(size=21, speed=106, theme="sewer",   loops=5, snaps=4, pits=4, saws=1, cats=1, cheese=4),
+    dict(size=23, speed=108, theme=None,      loops=5, snaps=6, pits=4, saws=1, cats=1, cheese=4),
+    dict(size=25, speed=110, theme="cellar",  loops=6, snaps=7, pits=4, saws=2, cats=1, cheese=5),
+    dict(size=27, speed=112, theme="kitchen", loops=7, snaps=8, pits=4, saws=2, cats=2, cheese=5),
+    dict(size=29, speed=114, theme="sewer",   loops=8, snaps=7, pits=6, saws=2, cats=2, cheese=5),
+    dict(size=31, speed=116, theme=None,      loops=10, snaps=8, pits=6, saws=3, cats=2, cheese=5),
+    dict(size=33, speed=120, theme="cellar",  loops=11, snaps=9, pits=7, saws=2, cats=2, cheese=5),
 ]
 
 
@@ -229,6 +235,29 @@ def is_bridge(maze, start, exit_cell, cell):
     return not reachable
 
 
+def in_pocket(maze, start, cell, reach=4):
+    """Leží tahle buňka v kapse, ze které vede jediná chodba?
+
+    Hledá se **hrdlo**: buňka blízko sýra, kterou když se zazdí, přestane být
+    sýr z doupěte dosažitelný. Kdo je za takovým hrdlem, ten při setkání
+    s kočkou nemá kam uhnout – a povinný sýr nesmí nikoho do takového místa
+    poslat.
+    """
+    near = [c for c, d in flood(maze, cell).items() if 0 < d <= reach]
+    return any(is_bridge(maze, start, cell, c) for c in near)
+
+
+def reachable_without(maze, start, blocked):
+    """Kam se z doupěte dostane, když jsou zadané buňky zazděné."""
+    saved = {cell: maze[cell] for cell in blocked}
+    for cell in blocked:
+        maze[cell] = "#"
+    seen = flood(maze, start)
+    for cell, char in saved.items():
+        maze[cell] = char
+    return seen
+
+
 def track_cells(maze, x, y):
     """Buňky, po kterých bude jezdit pila z téhle výchozí buňky."""
     horizontal = maze.free(x - 1, y) or maze.free(x + 1, y)
@@ -258,6 +287,12 @@ def furnish(maze, start, exit_cell, plan, rng):
     - **Na dráze pily nesmí být nic jiného.** Pila po své chodbě jezdí sem
       a tam, takže past uprostřed by z celé chodby udělala nepřekonatelnou past
       i tam, kde jinudy cesta nevede.
+    - **Sýr nesmí ležet za pilou ani ve slepé uličce, kde chodí kočka.**
+      Posledním sýrem se otevírají vrátka ven, takže je povinný – a povinná
+      věc nepatří tam, odkud se nedá vycouvat.
+
+    Vrací, kolik sýra se povedlo rozmístit: když se nevejde všechen plánovaný,
+    je celý pokus k zahození (`build`).
     """
     dist = flood(maze, start)
     free = [c for c in dist if c not in (start, exit_cell)]
@@ -275,6 +310,7 @@ def furnish(maze, start, exit_cell, plan, rng):
         return any((x + dx, y + dy) in hazards for dx in near for dy in near)
 
     # Pily jako první – potřebují celou chodbu jen pro sebe
+    saw_track_cells = set()
     saws = 0
     for cell in free:
         if saws >= plan["saws"]:
@@ -306,6 +342,7 @@ def furnish(maze, start, exit_cell, plan, rng):
 
         maze[cell] = "S"
         hazards.update(track)
+        saw_track_cells.update(track)
         saws += 1
 
     # Sklapovačky a propadla patří do chodeb, ne do slepých uliček – ve slepé
@@ -336,17 +373,30 @@ def furnish(maze, start, exit_cell, plan, rng):
         hazards.add(cell)
         cats += 1
 
+    # Sýr je povinný – bez posledního kousku se neotevřou vrátka do ráje –
+    # takže **nesmí ležet v koutě za pilou**. Průchod pilou umí generátor ověřit
+    # jen tam, kde kolem vede i jiná cesta (`is_bridge` to hlídá u východu),
+    # a kout odříznutý pilou by z povinného sýra udělal nesplnitelný úkol.
+    open_ground = reachable_without(maze, start, saw_track_cells)
+
     cheese = 0
     for cell in free:
         if cheese >= plan["cheese"]:
             break
-        if cell in hazards:
+        if cell in hazards or cell not in open_ground:
+            continue
+        # V kapse s jediným hrdlem povinný sýr být nesmí, jakmile po labyrintu
+        # chodí kočka: dovnitř se musí a ven vede tatáž jediná chodba, takže
+        # kočka, která do ní mezitím vejde, znamená jistou smrt. To není
+        # hádanka, to je los. Bez koček je slepá ulička jen zajížďka.
+        if plan["cats"] and in_pocket(maze, start, cell):
             continue
         maze[cell] = "*"
         hazards.add(cell)
         cheese += 1
 
     maze[start] = "P"
+    return cheese
 
 
 # ---- Ověření průchodnosti --------------------------------------------------
@@ -439,14 +489,19 @@ def saws_safe(tracks, frm, to, start_time, dt, speed):
     return True
 
 
-def find_path(maze, start, exit_cell, speed_pct, limit=2400):
-    """Najde posloupnost přeběhů z doupěte k východu, nebo `None`.
+def find_path(maze, start, target, speed_pct, begin=0.0, limit=2400):
+    """Najde posloupnost přeběhů z jedné buňky do druhé, nebo `None`.
 
     Prohledávání běží **po vrstvách času**: přeběh mezi sousedními buňkami trvá
     vždycky stejně (`1 / rychlost`), takže je čas ve vrstvě přesně daný a stačí
     si pamatovat, které buňky jsou v které vrstvě dosažitelné. Myš se může
     kdykoliv otočit, takže „čekání“ na past je v grafu obyčejné popobíhání tam
     a zpátky – nemusí se modelovat zvlášť.
+
+    `begin` je čas, ve kterém myš do buňky `start` dorazila. Cesta ven se
+    skládá z několika úseků (sýr po sýru a nakonec východ) a pasti běží podle
+    hodin, ne podle myši, takže **další úsek se musí ověřovat od času, kdy ten
+    předchozí skončil** – jinak by se ověřovala jiná hra.
 
     Kočky se neověřují: reagují na hráče, takže by výsledek stejně neplatil.
     Férové je to i bez toho, protože kočka je pomalejší než myš a myš ji uvidí
@@ -461,11 +516,11 @@ def find_path(maze, start, exit_cell, speed_pct, limit=2400):
 
     for k in range(limit):
         layer = layers[-1]
-        if exit_cell in layer:
+        if target in layer:
             found = k
             break
 
-        clock = k * dt
+        clock = begin + k * dt
         nxt = {}
         for (x, y) in layer:
             for dx, dy in DIRS:
@@ -486,13 +541,56 @@ def find_path(maze, start, exit_cell, speed_pct, limit=2400):
         return None
 
     # Zpětný chod: každá vrstva si drží, odkud se do buňky přiběhlo
-    path = [exit_cell]
-    cell = exit_cell
+    path = [target]
+    cell = target
     for index in range(found, 0, -1):
         cell = layers[index][cell]
         path.append(cell)
     path.reverse()
     return path
+
+
+def find_route(maze, start, exit_cell, speed_pct):
+    """Celá cesta z doupěte ven: **nejdřív všechen sýr, pak teprve východ**.
+
+    Vrátka do ráje otevírá poslední sýr (`Level.exitOpen`), takže od chvíle,
+    kdy se sýr stal povinným, nestačí ověřit cestu k východu – ověřuje se
+    cesta, která po labyrintu posbírá **všechno**.
+
+    Sýry se berou po nejbližším, jako by je sbíral hráč. Není to nejkratší
+    možné pořadí (to je obchodní cestující), ale o to nejde: stačí, že se to
+    takhle dá odjet. Co se cestou posbírá mimochodem, se z hledání rovnou
+    vyškrtne.
+    """
+    speed = BASE_SPEED * speed_pct / 100
+    dt = 1 / speed
+
+    left = {(x, y) for y in range(maze.size) for x in range(maze.size) if maze[x, y] == "*"}
+    route = [start]
+    at = start
+    clock = 0.0
+
+    while left:
+        reach = flood(maze, at)
+        target = min(left, key=lambda c: reach.get(c, 10 ** 9))
+        if target not in reach:
+            return None
+
+        leg = find_path(maze, at, target, speed_pct, clock)
+        if not leg:
+            return None
+
+        route.extend(leg[1:])
+        clock += (len(leg) - 1) * dt
+        at = target
+        left -= set(leg)
+
+    leg = find_path(maze, at, exit_cell, speed_pct, clock)
+    if not leg:
+        return None
+
+    route.extend(leg[1:])
+    return route
 
 
 # ---- Zápis levelů ----------------------------------------------------------
@@ -569,9 +667,13 @@ def build(index, plan):
         if flood(maze, start)[exit_cell] < plan["size"] * MIN_RUN:
             continue
 
-        furnish(maze, start, exit_cell, plan, rng)
+        # Když se nevejde všechen plánovaný sýr (třeba proto, že by zbyla jen
+        # místa za pilou), je to zkažený pokus: sýr je teď podmínka útěku, ne
+        # ozdoba, takže se nesmí tiše ubrat.
+        if furnish(maze, start, exit_cell, plan, rng) < plan["cheese"]:
+            continue
 
-        path = find_path(maze, start, exit_cell, plan["speed"])
+        path = find_route(maze, start, exit_cell, plan["speed"])
         if path:
             return maze, path
 
@@ -583,14 +685,14 @@ def main():
     parser.add_argument("--check", action="store_true", help="jen ověří plán, nic nezapíše")
     parser.add_argument("--force", action="store_true", help="přepíše i ručně upravené mapy")
     parser.add_argument("--verify", metavar="SOUBOR", help="ověří průchodnost hotové mapy")
-    parser.add_argument("--paths", metavar="SOUBOR", help="vypíše cestu k východu jako JSON")
+    parser.add_argument("--paths", metavar="SOUBOR", help="vypíše cestu pro sýr a ven jako JSON")
     args = parser.parse_args()
 
     if args.verify or args.paths:
         path = Path(args.verify or args.paths)
         rows, speed, theme, _ = read_level(path)
         maze, start, exit_cell = maze_from_rows(rows)
-        route = find_path(maze, start, exit_cell, speed)
+        route = find_route(maze, start, exit_cell, speed)
 
         if not route:
             print(f"{path.name}: NEPRŮCHODNÝ", file=sys.stderr)
@@ -598,7 +700,7 @@ def main():
         if args.paths:
             print(json.dumps(dict(speed=speed, theme=theme, path=route)))
         else:
-            print(f"{path.name}: průchodný, {len(route) - 1} přeběhů")
+            print(f"{path.name}: průchodný, {len(route) - 1} přeběhů pro všechen sýr a ven")
         return 0
 
     for index, plan in enumerate(LEVEL_PLAN, start=1):
@@ -607,7 +709,7 @@ def main():
         target = LEVEL_DIR / f"level{index}.js"
 
         if args.check:
-            print(f"level{index}: {plan['size']}×{plan['size']}, {len(route) - 1} přeběhů k východu")
+            print(f"level{index}: {plan['size']}×{plan['size']}, {len(route) - 1} přeběhů pro sýr a ven")
             continue
 
         if target.exists() and not args.force:

@@ -87,6 +87,7 @@ export class Game {
         this.clock = 0;             // odehraný čas levelu (pasti se řídí jím)
         this.prevClock = 0;
         this.cheeseTaken = 0;
+        this.openedAt = null;       // kdy se otevřela vrátka (kvůli animaci)
         this.progress = 0;
         this.particles.length = 0;
         this.camHeading = this.mouse.heading;
@@ -358,6 +359,14 @@ export class Game {
         this.camHeading = this.mouse.heading;
         this.updateParticles(dt);
 
+        // Dohraný level ještě chvíli doběhne: myš vyběhne otevřenými vrátky
+        // ven mezi sýrová kola. Venku už žádné zdi nejsou, takže tam běží mimo
+        // labyrint – a hodiny už neběží, takže se nic jiného nehýbe.
+        if (this.state === 'complete') {
+            this.mouse.runFree(dt, this.level.exitAngle);
+            return;
+        }
+
         if (this.state !== 'playing') return;
 
         this.prevClock = this.clock;
@@ -390,10 +399,7 @@ export class Game {
         this.hearTraps();
         this.collectCheese();
 
-        const dist = this.level.distanceToExit(this.mouse.cellX, this.mouse.cellY);
-        if (dist >= 0 && this.level.startDist > 0) {
-            this.progress = Math.max(0, Math.min(1, 1 - dist / this.level.startDist));
-        }
+        this.progress = this.measureProgress();
 
         const cause = this.deadly();
         if (cause) {
@@ -401,7 +407,23 @@ export class Game {
             return;
         }
 
-        if (this.level.isExit(this.mouse.cellX, this.mouse.cellY)) this.escaped();
+        // Zavřenými vrátky myš neproběhne (zastaví ji `Level.blocks`), ale
+        // rozhoduje se to tady: level končí až útěkem do otevřeného ráje.
+        if (this.level.isExit(this.mouse.cellX, this.mouse.cellY) && this.level.exitOpen) this.escaped();
+    }
+
+    /**
+     * Kolik má myš za sebou. Cesta ven má dvě části – posbírat sýr, bez kterého
+     * se vrátka neotevřou, a doběhnout k východu – takže se počítá obojí.
+     * Kdyby v tom sýr nebyl, ukazoval by pruh plno i před zavřenými vrátky.
+     */
+    measureProgress() {
+        const dist = this.level.distanceToExit(this.mouse.cellX, this.mouse.cellY);
+        const near = dist >= 0 && this.level.startDist > 0
+            ? Math.max(0, Math.min(1, 1 - dist / this.level.startDist))
+            : 0;
+
+        return Math.min(1, (this.cheeseTaken + near) / (this.level.cheeseCount + 1));
     }
 
     /**
@@ -437,10 +459,29 @@ export class Game {
     }
 
     collectCheese() {
-        if (this.level.takeCheese(this.mouse.cellX, this.mouse.cellY)) {
-            this.cheeseTaken++;
-            this.feedback('cheese');
+        if (!this.level.takeCheese(this.mouse.cellX, this.mouse.cellY)) return;
+
+        this.cheeseTaken++;
+        this.feedback('cheese');
+
+        // Poslední sýr odemyká vrátka. Je to největší okamžik pokusu, takže
+        // se ohlásí vlastním zvukem – hráč je od nich obvykle na druhém konci
+        // labyrintu a jinak by se to nedozvěděl.
+        if (this.level.exitOpen) {
+            this.openedAt = this.clock;
+            this.feedback('gate');
         }
+    }
+
+    /**
+     * Jak jsou vrátka do ráje otevřená (0 zavřená, 1 dokořán). Otevírají se
+     * posledním sýrem a chvilku jim to trvá – ať je z chodby vidět, že se
+     * něco stalo, i když je myš zrovna jinde.
+     */
+    get gateOpen() {
+        if (!this.level.exitOpen) return 0;
+        if (this.openedAt === null) return 1;   // level bez sýra začíná otevřený
+        return Math.min(1, (this.clock - this.openedAt) / 0.7);
     }
 
     /** Sklapnutí pasti opodál je slyšet – varování, že se blíží ta pravá chvíle. */
@@ -605,8 +646,13 @@ export class Game {
             ctx.globalAlpha = Math.max(0, 1 - (dist / SIGHT) ** 1.6);
             ctx.drawImage(this.floorTile(x, y), px, py, tile, tile);
 
+            // Za východem se zeď nekreslí: tam už labyrint není, tam je ráj
+            // (`Theme.drawExit`). Bez toho by byl východ slepá ulička.
+            const gate = this.level.isExit(x, y);
+
             for (let dy = -1; dy <= 1; dy++) {
                 for (let dx = -1; dx <= 1; dx++) {
+                    if (gate && this.level.outside(x + dx, y + dy)) continue;
                     if (!this.level.isWall(x + dx, y + dy)) continue;
                     ctx.drawImage(this.wallTile(x + dx, y + dy), px + dx * tile, py + dy * tile, tile, tile);
                 }
@@ -634,7 +680,9 @@ export class Game {
 
             ctx.globalAlpha = light;
 
-            if (this.level.isExit(x, y)) this.theme.drawExit(ctx, cx, cy, tile);
+            if (this.level.isExit(x, y)) {
+                this.theme.drawExit(ctx, cx, cy, tile, this.level.exitAngle, this.gateOpen);
+            }
             if (x === this.level.start.x && y === this.level.start.y) this.theme.drawDen(ctx, cx, cy, tile);
 
             const trap = this.level.trapAt(x, y);
@@ -760,10 +808,33 @@ export class Game {
         ctx.drawImage(this.mapPlan(), x, y);
         ctx.drawImage(this.mapTrail(), x, y);
 
-        // východ – bliká, aby bylo poznat, kam se běží
+        // Východ. Dokud v labyrintu zbývá sýr, jsou vrátka zavřená a plánek je
+        // ukazuje jen slabě, s obrysem; posledním sýrem se rozblikají – ať je
+        // na plánku vidět, že se cesta ven otevřela.
         const exit = this.level.exit;
-        ctx.fillStyle = `rgba(255, 226, 150, ${0.55 + 0.45 * Math.sin(this.clock * 3)})`;
-        ctx.fillRect(x + exit.x * cell - 1, y + exit.y * cell - 1, cell + 2, cell + 2);
+        const beat = 0.55 + 0.45 * Math.sin(this.clock * 3);
+        const box = [x + exit.x * cell - 1, y + exit.y * cell - 1, cell + 2, cell + 2];
+
+        ctx.fillStyle = `rgba(255, 226, 150, ${this.level.exitOpen ? beat : 0.18})`;
+        ctx.fillRect(...box);
+        if (!this.level.exitOpen) {
+            ctx.strokeStyle = 'rgba(255, 226, 150, 0.55)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(box[0] + 0.5, box[1] + 0.5, box[2] - 1, box[3] - 1);
+        }
+
+        // Sýr, který myš viděla, ale nechala ležet. Bez něj se vrátka
+        // neotevřou, takže je férové ho na plánku připomenout – ale jen ten
+        // **viděný**: co je za rohem, se pořád musí najít.
+        ctx.fillStyle = '#ffd45e';
+        for (const spot of this.level.cheeseCells) {
+            if (!this.level.hasCheese(spot.x, spot.y)) continue;
+            if (!this.seen.has(spot.y * this.level.width + spot.x)) continue;
+
+            ctx.beginPath();
+            ctx.arc(x + (spot.x + 0.5) * cell, y + (spot.y + 0.5) * cell, Math.max(1.5, cell * 0.45), 0, TAU);
+            ctx.fill();
+        }
 
         // doupě, ze kterého se vyběhlo – kvůli orientaci, kde je střed
         const den = this.level.start;
@@ -775,8 +846,10 @@ export class Game {
 
         // myš i s tím, kam je otočená – na plánku je sever nahoře, ve hře ne,
         // takže bez čárky by hráč nevěděl, kterým směrem se vlastně žene
-        const mx = x + this.mouse.x * cell;
-        const my = y + this.mouse.y * cell;
+        // Po útěku myš stojí za okrajem mapy, ale plánek končí u obvodové zdi –
+        // tečka se proto drží uvnitř, ať nevisí ve vzduchu vedle rámečku.
+        const mx = x + Math.max(0, Math.min(w, this.mouse.x * cell));
+        const my = y + Math.max(0, Math.min(h, this.mouse.y * cell));
         const dot = Math.max(2, cell * 0.7);
 
         ctx.strokeStyle = 'rgba(8, 10, 20, 0.9)';
@@ -931,7 +1004,10 @@ export class Game {
         ctx.fillStyle = '#e9edff';
 
         const room = w - barX - icons - pad;
-        const cheese = `SÝR ${this.cheeseTaken}/${this.level.cheeseCount}`;
+        // Dokud sýr zbývá, ukazuje se počet; s posledním kouskem je důležitější,
+        // že se otevřela vrátka – počítat už není co.
+        const open = this.level.exitOpen;
+        const cheese = open ? 'VÝCHOD OTEVŘEN' : `SÝR ${this.cheeseTaken}/${this.level.cheeseCount}`;
         const attempt = `POKUS ${this.attempt}`;
         const label = `LEVEL ${this.levelIndex + 1}`;
 
@@ -941,7 +1017,9 @@ export class Game {
 
         ctx.textAlign = 'right';
         if (used + ctx.measureText(cheese).width + 24 < room) {
+            ctx.fillStyle = open ? '#ffd45e' : '#e9edff';
             ctx.fillText(cheese, barX + barW, 18);
+            ctx.fillStyle = '#e9edff';
         }
 
         ctx.textAlign = 'center';
@@ -1058,7 +1136,8 @@ export class Game {
         const cx = this.w / 2;
         const cy = this.h / 2;
 
-        ctx.fillStyle = 'rgba(6, 8, 16, 0.72)';
+        // Nad rájem je překryv slabší – ať je za textem vidět, kam myš doběhla
+        ctx.fillStyle = this.state === 'complete' ? 'rgba(6, 8, 16, 0.45)' : 'rgba(6, 8, 16, 0.72)';
         ctx.fillRect(0, 0, this.w, this.h);
 
         const lines = this.overlayText();
@@ -1089,6 +1168,7 @@ export class Game {
                 return [
                     `Level ${this.levelIndex + 1}${this.theme.name() ? ' – ' + this.theme.name() : ''}`,
                     'Myš běží sama, ty jí říkáš jen kudy.',
+                    'Seber všechen sýr – teprve pak se otevřou vrátka do ráje',
                     this.tilt.enabled
                         ? 'Nakláněním telefonu otáčíš celý labyrint'
                         : 'Drž ← → nebo kraj obrazovky a labyrint se stáčí',
@@ -1106,7 +1186,7 @@ export class Game {
                 ];
             case 'complete':
                 return [
-                    'Venku!',
+                    'V myším ráji!',
                     `Sýr ${this.cheeseTaken}/${this.level.cheeseCount} · skóre ${this.score}`,
                     'Dál klávesou nebo ťuknutím',
                 ];

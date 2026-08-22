@@ -12,13 +12,15 @@ import {SAW_REACH} from "./physics.js";
  * hra běží stejně. Level si tady drží jen jeho jméno – co znamená, ví třída
  * prostředí v `js/themes/`.
  *
- * Mapa je mřížka buněk: myš startuje uprostřed (`P`), utíká k východu (`F`)
- * v obvodové zdi a cestou sbírá sýr. Legenda znaků:
+ * Mapa je mřížka buněk: myš startuje uprostřed (`P`), sbírá po labyrintu sýr
+ * a teprve **s posledním kouskem se otevře východ** (`F`) v obvodové zdi.
+ * Do té doby je ve východu zavřená mříž a myš se o ni zapře jako o zeď –
+ * ví to `isBarred`, a co se dá projít, říká `blocks`. Legenda znaků:
  *   #        zeď labyrintu (myš se o ni zastaví, neumře)
  *   mezera   chodba
  *   P        start – doupě uprostřed labyrintu
  *   F        východ z labyrintu (jediný, leží v obvodové zdi)
- *   *        sýr (body navíc, k útěku není potřeba)
+ *   *        sýr – všechen se musí posbírat, jinak se východ neotevře
  *   T        sklapovací past – cyklicky sklapne, spouští ji hodiny, ne myš
  *   H        propadlo v podlaze – cyklicky se otevře
  *   S        pila jezdící sem a tam po své chodbě
@@ -38,7 +40,9 @@ export class Level {
         this.walls = [];        // walls[y][x] = true, pokud je zeď
         this.traps = [];        // traps[y][x] = 'snap' | 'pit' | null
         this.cheese = [];       // cheese[y][x] = true, pokud tam leží nesebraný sýr
+        this.cheeseCells = [];  // [{x, y}] – kde sýr původně ležel (kvůli plánku)
         this.cheeseCount = 0;
+        this.cheeseLeft = 0;
         this.sawSpawns = [];    // [{x, y, axis, from, to}]
         this.catSpawns = [];    // [{x, y}]
         this.start = {x: 1, y: 1};
@@ -46,6 +50,7 @@ export class Level {
 
         this.#parse();
         this.#measureSaws();
+        this.#measureExit();
 
         // Vzdálenost každé buňky od východu (v buňkách, po chodbách). Z ní se
         // počítá postup v HUD a podle ní se za myší žene kočka.
@@ -85,7 +90,9 @@ export class Level {
                         break;
                     case '*':
                         cheese = true;
+                        this.cheeseCells.push({x, y});
                         this.cheeseCount++;
+                        this.cheeseLeft++;
                         break;
                     case 'P':
                         this.start = {x, y};
@@ -137,6 +144,31 @@ export class Level {
         }
     }
 
+    /**
+     * Kudy z východu ven z labyrintu. Východ leží v obvodové zdi, takže na
+     * jednu stranu z něj vede chodba a na druhé už mapa není – a právě tam se
+     * kreslí ráj, do kterého se utíká (`Theme.drawExit`).
+     *
+     * Je to jediné místo hry, které má „ven“ a „dovnitř“: dveře ve zdi natočení
+     * mají, protože se otáčejí i s ní.
+     */
+    #measureExit() {
+        let out = null;
+        for (const d of DIRS) {
+            if (!this.#inside(this.exit.x + d.x, this.exit.y + d.y)) out = d;
+        }
+
+        // Ručně nakreslená mapa může mít východ i uvnitř – pak míří ven na
+        // opačnou stranu, než odkud k němu vede chodba.
+        if (!out) {
+            const way = DIRS.find(d => this.isFree(this.exit.x + d.x, this.exit.y + d.y)) ?? DIRS[0];
+            out = {x: -way.x, y: -way.y};
+        }
+
+        this.exitOut = out;
+        this.exitAngle = Math.atan2(out.y, out.x);
+    }
+
     /** Vzdálenosti všech buněk od zadané buňky (po chodbách, −1 = nedosažitelná). */
     #flood(sx, sy) {
         const dist = [];
@@ -165,6 +197,11 @@ export class Level {
         return x >= 0 && y >= 0 && x < this.width && y < this.height;
     }
 
+    /** Je tahle buňka až za okrajem mapy? Za východem tam začíná ráj. */
+    outside(x, y) {
+        return !this.#inside(x, y);
+    }
+
     /** Mimo mapu je zeď – labyrint je uzavřený a ven vede jenom východ. */
     isWall(x, y) {
         return !this.#inside(x, y) || this.walls[y][x];
@@ -186,6 +223,7 @@ export class Level {
     takeCheese(x, y) {
         if (this.hasCheese(x, y)) {
             this.cheese[y][x] = false;
+            this.cheeseLeft--;
             return true;
         }
         return false;
@@ -193,6 +231,28 @@ export class Level {
 
     isExit(x, y) {
         return x === this.exit.x && y === this.exit.y;
+    }
+
+    /**
+     * Je východ otevřený? Mříž povolí, až když je v labyrintu posbíraný
+     * všechen sýr – bez něj se do myšího ráje nechodí.
+     */
+    get exitOpen() {
+        return this.cheeseLeft <= 0;
+    }
+
+    /** Stojí v téhle buňce zavřená mříž východu? */
+    isBarred(x, y) {
+        return this.isExit(x, y) && !this.exitOpen;
+    }
+
+    /**
+     * Co zastaví běžící zvíře: zeď labyrintu i zavřená mříž východu. Kolize se
+     * ptají sem, kdežto tvar mapy (dosvit, vzdálenosti, plánek) se ptá
+     * `isWall` – mříž je věc pokusu, ne labyrintu.
+     */
+    blocks(x, y) {
+        return this.isWall(x, y) || this.isBarred(x, y);
     }
 
     /** Kolik buněk chodbami zbývá k východu (−1, když se tam nedá dojít). */

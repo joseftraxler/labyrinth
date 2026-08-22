@@ -1,5 +1,5 @@
 import {Entity} from "./entity.js";
-import {DIRS, TAU, dirAngle} from "../draw.js";
+import {DIRS, TAU, angleDiff, dirAngle} from "../draw.js";
 import {MOUSE_RADIUS, PACE_RATE, TURN_MAX, TURN_RATE} from "../physics.js";
 
 /**
@@ -105,6 +105,10 @@ export class Mouse extends Entity {
      * Posun po jedné ose s dorazem o zeď. `other` je poloha na druhé ose –
      * tělíčko je kulaté, takže se musí zkontrolovat všechny buňky, které
      * napříč protíná.
+     *
+     * Ptá se na `blocks`, ne na `isWall`: dokud v labyrintu zbývá sýr, je
+     * zavřená mříž východu zeď jako každá jiná – a náraz do ní se ohlásí
+     * stejným `stalled` jako náraz do kamene.
      */
     #slide(value, delta, other, horizontal) {
         if (delta === 0) return value;
@@ -119,8 +123,8 @@ export class Mouse extends Entity {
 
         for (let across = first; across <= last; across++) {
             const wall = horizontal
-                ? this.game.level.isWall(cell, across)
-                : this.game.level.isWall(across, cell);
+                ? this.game.level.blocks(cell, across)
+                : this.game.level.blocks(across, cell);
             if (!wall) continue;
 
             // doraz přesně o stěnu buňky, o zlomek pixelu dál, ať se nezasekne
@@ -128,6 +132,25 @@ export class Mouse extends Entity {
         }
 
         return next;
+    }
+
+    /**
+     * Doběh do ráje za východem. Venku už žádné zdi nejsou, takže se nekontrolují
+     * – myš jen doběhne mezi sýry a mezi nimi se zastaví. Volá to `Game`, když
+     * je level dohraný; sama od sebe myš ven nevybíhá.
+     */
+    runFree(dt, heading) {
+        const turn = angleDiff(this.heading, heading);
+        const most = TURN_RATE * dt;
+        this.heading += Math.max(-most, Math.min(most, turn));
+
+        this.animPhase += dt;
+        this.pace = Math.max(0, this.pace - PACE_RATE * 0.16 * dt);
+        this.stalled = false;
+
+        const step = this.speed * this.pace * dt;
+        this.x += Math.cos(this.heading) * step;
+        this.y += Math.sin(this.heading) * step;
     }
 
     /**
