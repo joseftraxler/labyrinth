@@ -1,7 +1,7 @@
 // Service worker pro PWA – hra funguje offline a jde nainstalovat.
 // Cesty jsou relativní ke scope (umístění tohoto souboru).
 const PREFIX = 'labyrinth-';
-const CACHE = PREFIX + 'v6';
+const CACHE = PREFIX + 'v7';
 
 const ASSETS = [
     './',

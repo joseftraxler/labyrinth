@@ -1,6 +1,6 @@
 /**
  * Ovládání nakloněním telefonu. Náklon doleva a doprava stáčí labyrint, a to
- * **podle toho, jak moc je telefon nakloněný** (`RESPONSE`) – mírný náklon
+ * **podle toho, jak moc je telefon nakloněný** (`DEAD`, `FULL`) – mírný náklon
  * otáčí pomalu a přesně, prudký rychle.
  *
  * Vazba je stejná jako u zvuku a vibrací: `Game` se jen ptá, jak rychle a kam
@@ -20,27 +20,26 @@
  *   se na ležato zatáčelo nakláněním od sebe a k sobě.
  */
 
+import {TURN_MAX} from "./physics.js";
+
 const STORAGE_KEY = 'labyrinth-tilt';
 
 /**
- * Jak se náklon ve stupních převádí na rychlost otáčení (v násobcích
- * `TURN_RATE`). Mezi zlomovými body se počítá lineárně:
+ * Jak se náklon ve stupních převádí na rychlost otáčení:
  *
- *   do 5°   nic – telefon nikdo nedrží dokonale v klidu a chvění ruky nesmí
- *           labyrintem otáčet,
- *   22,5°   základní rychlost, stejná jako u šipky nebo prstu na kraji,
- *   45°     dvojnásobek – rychlé otočení, když je potřeba,
- *   nad 45° už nic navíc, jinak by šlo telefonem točit dokola a labyrint by se
- *           roztočil tak, že by hráč ztratil orientaci.
+ *   do `DEAD`   nic – telefon nikdo nedrží dokonale v klidu a chvění ruky
+ *               nesmí labyrintem otáčet,
+ *   `DEAD`–`FULL`  plynule nahoru, takže mírným náklonem jde mířit přesně
+ *               a prudkým se dá rychle otočit,
+ *   nad `FULL`  už nic navíc (`TURN_MAX`) – v rychleji rotujícím labyrintu by
+ *               hráč ztratil orientaci a plánek v rohu by přestal stačit.
  *
- * Odezva je záměrně **plynulá, ne přepínač**: mírný náklon stáčí labyrint
- * pomalu a přesně, prudký rychle.
+ * Odezva je záměrně **plynulá, ne přepínač**: mezi prahem a plným náklonem
+ * roste rovnoměrně, takže v půlce cesty se otáčí zhruba půlkou nejvyšší
+ * rychlosti.
  */
-const RESPONSE = [
-    {tilt: 5, rate: 0},
-    {tilt: 22.5, rate: 1},
-    {tilt: 45, rate: 2},
-];
+const DEAD = 5;
+const FULL = 45;
 
 // Vyhlazení čtení z čidla (0–1, míň = klidnější, ale línější)
 const SMOOTH = 0.3;
@@ -115,7 +114,7 @@ export class Tilt {
 
     /**
      * Jak rychle se má labyrint otáčet: záporně doleva, kladně doprava,
-     * 0 vůbec. Číslo je násobek `TURN_RATE` podle míry náklonu (`RESPONSE`).
+     * 0 vůbec. Číslo je násobek `TURN_RATE` podle míry náklonu (`rateFor`).
      * Volá se jednou za snímek.
      */
     read() {
@@ -139,20 +138,10 @@ export class Tilt {
     }
 }
 
-/** Rychlost otáčení pro daný náklon – lineárně mezi body `RESPONSE`. */
+/** Rychlost otáčení pro daný náklon jako násobek `TURN_RATE`. */
 function rateFor(tilt) {
-    let previous = {tilt: 0, rate: 0};
-
-    for (const point of RESPONSE) {
-        if (tilt <= point.tilt) {
-            const span = point.tilt - previous.tilt;
-            const part = (tilt - previous.tilt) / span;
-            return previous.rate + (point.rate - previous.rate) * part;
-        }
-        previous = point;
-    }
-
-    return previous.rate;   // nad posledním bodem se už nezrychluje
+    const part = (tilt - DEAD) / (FULL - DEAD);
+    return Math.max(0, Math.min(1, part)) * TURN_MAX;
 }
 
 function remember(enabled) {

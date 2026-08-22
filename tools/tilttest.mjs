@@ -8,8 +8,8 @@
  *
  * Kontroluje čtyři věci, na kterých ovládání náklonem stojí:
  *   1. náklon doprava stáčí labyrint doprava, doleva doleva,
- *   2. **rychlost otáčení odpovídá míře náklonu** – 22,5° základní rychlost,
- *      45° dvojnásobek a víc už ne,
+ *   2. **rychlost otáčení odpovídá míře náklonu** – od pěti stupňů lineárně
+ *      nahoru, od 45° strop,
  *   3. drobné chvění rukou (pod prahem) neotáčí vůbec,
  *   4. **klidová poloha se bere při zapnutí** – když hráč drží telefon
  *      nakloněný, hra z toho nesmí zatáčet.
@@ -121,45 +121,33 @@ await page.evaluate(() => window.labyrinth.handleAction('tilt'));
 await page.waitForTimeout(100);
 check('přepínač náklon zapnul', await page.evaluate(() => window.labyrinth.tilt.enabled));
 
-// Kolik stupňů se za `seconds` stočí při základní rychlosti (js/physics.js)
-const {TURN_RATE} = await page.evaluate(async () => {
+// Kolik stupňů se za dvanáct vteřin má stočit při daném náklonu. Křivka je
+// v js/tilt.js (do 5° nic, pak lineárně, od 45° strop) – tady je jen ověření,
+// že hra opravdu otáčí tak, jak je slíbeno.
+const {TURN_RATE, TURN_MAX} = await page.evaluate(async () => {
     const physics = await import('./js/physics.js');
-    return {TURN_RATE: physics.TURN_RATE};
+    return {TURN_RATE: physics.TURN_RATE, TURN_MAX: physics.TURN_MAX};
 });
-const base = TURN_RATE * 57.3 * 12;
-const near = (value, want) => Math.abs(value - want) < Math.abs(want) * 0.08;
 
-await tilt(0, 22.5);
-await page.waitForTimeout(150);
-const right = await page.evaluate(runInPage, 12);
-check('22,5° doprava = základní rychlost', near(right, base), `${right}° proti ${Math.round(base)}°`);
+const seconds = 12;
+const expect = deg => {
+    const part = Math.max(0, Math.min(1, (Math.abs(deg) - 5) / 40));
+    return Math.sign(deg) * part * TURN_MAX * TURN_RATE * (180 / Math.PI) * seconds;
+};
+const near = (value, want) => Math.abs(value - want) < Math.max(20, Math.abs(want) * 0.08);
 
-await tilt(0, -22.5);
-await page.waitForTimeout(150);
-const left = await page.evaluate(runInPage, 12);
-check('22,5° doleva = základní rychlost na druhou stranu', near(left, -base), `${left}°`);
+for (const deg of [45, -45, 25, 12, -12, 70, 4]) {
+    await tilt(0, deg);
+    await page.waitForTimeout(150);
 
-await tilt(0, 45);
-await page.waitForTimeout(150);
-const full = await page.evaluate(runInPage, 12);
-check('45° otáčí dvakrát rychleji', near(full, 2 * base), `${full}° proti ${Math.round(2 * base)}°`);
+    const turned = await page.evaluate(runInPage, seconds);
+    const want = expect(deg);
+    const label = deg === 70 ? 'nad 45° už se nezrychluje'
+        : deg === 4 ? 'chvění pod pěti stupni neotáčí vůbec'
+        : `náklon ${deg}° otáčí úměrně`;
 
-await tilt(0, 70);
-await page.waitForTimeout(150);
-const over = await page.evaluate(runInPage, 12);
-check('nad 45° už se nezrychluje', near(over, 2 * base), `${over}° proti ${Math.round(2 * base)}°`);
-
-// mezi body odezva plynule roste, není to přepínač
-await tilt(0, 13.75);
-await page.waitForTimeout(150);
-const half = await page.evaluate(runInPage, 12);
-check('mírný náklon otáčí pomaleji', near(half, base / 2), `${half}° proti ${Math.round(base / 2)}°`);
-
-// 4. drobné chvění (pod prahem) nesmí zatáčet
-await tilt(0, 4);
-await page.waitForTimeout(150);
-const steady = await page.evaluate(runInPage, 12);
-check('chvění pod pěti stupni neotáčí vůbec', steady === 0, `${steady}°`);
+    check(label, near(turned, want), `${turned}° proti ${Math.round(want)}° za ${seconds} s`);
+}
 
 // 5. klidová poloha se bere při zapnutí – nakloněný telefon nezatáčí
 await page.evaluate(() => window.labyrinth.handleAction('tilt'));   // vypnout

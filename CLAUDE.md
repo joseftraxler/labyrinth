@@ -101,8 +101,8 @@ Z toho plynou dvě pravidla:
 
 **Otáčí hráč, ne hra.** Natočení myši se mění jen tím, že hráč drží zatáčení
 (náklon telefonu, šipku, kraj obrazovky). Základní rychlost je `TURN_RATE`
-(čtvrtotáčka kolem 0,65 s), náklonem telefonu jde podle jeho sklonu zpomalit
-až k nule nebo zrychlit na dvojnásobek (`TURN_MAX`). Myš se nikde neotočí sama
+(čtvrtotáčka kolem 0,65 s), náklonem telefonu jde podle jeho sklonu otáčet
+pomaleji i rychleji, nejvýš však dvojnásobkem (`TURN_MAX`). Myš se nikde neotočí sama
 a nikdy nikam neskočí o 90°; labyrint se stáčí přesně tak dlouho a tak rychle,
 jak dlouho a jak moc hráč drží.
 
@@ -173,10 +173,11 @@ Tři vstupy, jedna cesta:
   prostředek zastaví. Obojí se drží. Držení se hlídá po jednotlivých prstech,
   takže puštění jednoho prstu nezruší zatáčení druhým.
 - **Náklon telefonu** (`js/tilt.js`) – náklon doleva a doprava stáčí labyrint,
-  a to **úměrně tomu, jak moc je telefon nakloněný** (`RESPONSE`): do 5° nic,
-  22,5° základní rychlost (stejná jako u klávesy), 45° dvojnásobek a výš už se
-  nezrychluje (`TURN_MAX`). Odezva je plynulá schválně – mírným náklonem se dá
-  mířit přesně, prudkým rychle otočit. Tři věci, bez kterých by to nefungovalo:
+  a to **úměrně tomu, jak moc je telefon nakloněný**: do `DEAD` (5°) nic, pak
+  lineárně nahoru až po `FULL` (45°), kde se otáčí nejrychleji (`TURN_MAX`,
+  dvojnásobek klávesy); výš už se nezrychluje. V půlce cesty se tedy otáčí
+  zhruba půlkou nejvyšší rychlosti. Odezva je plynulá schválně – mírným
+  náklonem se dá mířit přesně, prudkým rychle otočit. Tři věci, bez kterých by to nefungovalo:
   čidlo se pozná až podle první události (na desktopu `DeviceOrientationEvent`
   existuje, ale nikdy nic nepošle), iOS chce povolení a dá ho **jen z dotyku**
   (proto o něj žádá až přepínač), a **klidová poloha se měří při zapnutí** –
