@@ -365,8 +365,13 @@ export class Game {
 
         // Zatáčení se drží: klávesa, prst na kraji obrazovky nebo náklon
         // telefonu. Dokud hráč drží, labyrint se pod myší stáčí; jakmile pustí,
-        // myš běží rovně dál – proto se posílá i to, že se zrovna nezatáčí.
-        this.mouse.steer(this.held ?? this.tilt.read());
+        // myš běží rovně dál – proto se posílá i nula.
+        //
+        // Klávesa a prst otáčejí plnou rychlostí, náklon podle svého sklonu.
+        // Držené tlačítko má přednost: kdo drží kraj obrazovky, chce zatáčet
+        // bez ohledu na to, jak zrovna telefon svírá.
+        const button = this.held === 'left' ? -1 : this.held === 'right' ? 1 : 0;
+        this.mouse.steer(button || this.tilt.read());
         this.mouse.brake(this.waiting);
 
         const stalled = this.mouse.stalled;

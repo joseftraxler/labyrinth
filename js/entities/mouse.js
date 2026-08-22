@@ -1,6 +1,6 @@
 import {Entity} from "./entity.js";
 import {DIRS, TAU, dirAngle} from "../draw.js";
-import {MOUSE_RADIUS, PACE_RATE, TURN_RATE} from "../physics.js";
+import {MOUSE_RADIUS, PACE_RATE, TURN_MAX, TURN_RATE} from "../physics.js";
 
 /**
  * Bílá myš, kterou hráč řídí. **Běží pořád rovně před sebe** a hráč jí jen
@@ -24,7 +24,7 @@ export class Mouse extends Entity {
         super.reset();
 
         this.heading = dirAngle(this.firstWayOut());
-        this.turning = 0;        // -1 doleva, +1 doprava, 0 rovně
+        this.turning = 0;        // násobek TURN_RATE: záporně doleva, kladně doprava
         this.braking = false;    // hráč drží „stůj“
         this.pace = 1;           // rozjetost 0–1, brzda ji stahuje k nule
         this.speed = 0;
@@ -44,9 +44,14 @@ export class Mouse extends Entity {
         return 0;
     }
 
-    /** Pokyn od hráče: `left`/`right` se **drží** – otáčí, dokud hráč nepustí. */
-    steer(side) {
-        this.turning = side === 'left' ? -1 : side === 'right' ? 1 : 0;
+    /**
+     * Otáčení od hráče. Číslo je **násobek `TURN_RATE`**: záporné doleva,
+     * kladné doprava, nula rovně. Šipka i prst posílají plnou jedničku, náklon
+     * telefonu tolik, kolik odpovídá jeho sklonu – proto to není přepínač.
+     * Drží se: dokud chodí nenulové číslo, labyrint se stáčí.
+     */
+    steer(turn) {
+        this.turning = Math.max(-TURN_MAX, Math.min(TURN_MAX, turn || 0));
     }
 
     /**

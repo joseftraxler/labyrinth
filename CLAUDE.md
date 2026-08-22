@@ -100,10 +100,11 @@ Z toho plynou dvě pravidla:
   to světlo, které myš nese s sebou, ne kus mapy.
 
 **Otáčí hráč, ne hra.** Natočení myši se mění jen tím, že hráč drží zatáčení
-(náklon telefonu, šipku, kraj obrazovky) – rychlostí `TURN_RATE`, tedy
-čtvrtotáčka kolem 0,65 s. Myš se nikde neotočí sama a nikdy nikam neskočí
-o 90°; labyrint se stáčí přesně tak dlouho, jak dlouho hráč drží. Kdo chce
-otáčení ještě pozvolnější, sníží `TURN_RATE`.
+(náklon telefonu, šipku, kraj obrazovky). Základní rychlost je `TURN_RATE`
+(čtvrtotáčka kolem 0,65 s), náklonem telefonu jde podle jeho sklonu zpomalit
+až k nule nebo zrychlit na dvojnásobek (`TURN_MAX`). Myš se nikde neotočí sama
+a nikdy nikam neskočí o 90°; labyrint se stáčí přesně tak dlouho a tak rychle,
+jak dlouho a jak moc hráč drží.
 
 ## Minimapa: jediné místo, které se neotáčí
 
@@ -159,6 +160,10 @@ otáčí, takže „nahoru“ nedává smysl; smysl dává doleva, doprava a zp�
 zastavení; každý snímek se obojí předá myši (`Game.update`). Ťuknutí je jen
 krátké držení. Otočka o 180° není zvláštní akce – prostě se drží zatáčení dýl.
 
+`Mouse.steer` nedostává stranu, ale **násobek `TURN_RATE`** (záporně doleva,
+kladně doprava). Klávesa i prst posílají plnou jedničku, náklon telefonu tolik,
+kolik odpovídá jeho sklonu; držené tlačítko má přednost před čidlem.
+
 Tři vstupy, jedna cesta:
 
 - **Klávesnice** – `input.js` mapuje `keydown` i `keyup`.
@@ -167,16 +172,18 @@ Tři vstupy, jedna cesta:
   zbytek plochy je rozdělený na tři svislé pásy: krajních 30 % zatáčí,
   prostředek zastaví. Obojí se drží. Držení se hlídá po jednotlivých prstech,
   takže puštění jednoho prstu nezruší zatáčení druhým.
-- **Náklon telefonu** (`js/tilt.js`) – náklon doleva a doprava zatáčí, drží se
-  stejně jako klávesa. Tři věci, bez kterých by to nefungovalo: čidlo se pozná
-  až podle první události (na desktopu `DeviceOrientationEvent` existuje, ale
-  nikdy nic nepošle), iOS chce povolení a dá ho **jen z dotyku** (proto o něj
-  žádá až přepínač), a **klidová poloha se měří při zapnutí** – nikdo nedrží
-  telefon rovně. Osy čidla jsou v soustavě přístroje, takže se musí otočit podle
-  `screen.orientation.angle`, jinak by se na ležato zatáčelo nakláněním od sebe.
-  Práh je nízký (pár stupňů) s hysterezí, ať stačí mírné naklonění a přitom
-  nerozhodí chvění ruky. Ověřuje to `node tools/tilttest.mjs` s emulovaným
-  čidlem – na počítači se náklon jinak vyzkoušet nedá.
+- **Náklon telefonu** (`js/tilt.js`) – náklon doleva a doprava stáčí labyrint,
+  a to **úměrně tomu, jak moc je telefon nakloněný** (`RESPONSE`): do 5° nic,
+  22,5° základní rychlost (stejná jako u klávesy), 45° dvojnásobek a výš už se
+  nezrychluje (`TURN_MAX`). Odezva je plynulá schválně – mírným náklonem se dá
+  mířit přesně, prudkým rychle otočit. Tři věci, bez kterých by to nefungovalo:
+  čidlo se pozná až podle první události (na desktopu `DeviceOrientationEvent`
+  existuje, ale nikdy nic nepošle), iOS chce povolení a dá ho **jen z dotyku**
+  (proto o něj žádá až přepínač), a **klidová poloha se měří při zapnutí** –
+  nikdo nedrží telefon rovně. Osy čidla jsou v soustavě přístroje, takže se musí
+  otočit podle `screen.orientation.angle`, jinak by se na ležato zatáčelo
+  nakláněním od sebe. Ověřuje to `node tools/tilttest.mjs` s emulovaným čidlem –
+  na počítači se náklon jinak vyzkoušet nedá.
 
 Do horního pruhu se na telefonu všechno nevejde, takže `drawHud` texty **měří
 a zkracuje po stupních**: nejdřív zmizí počet pokusů, pak stav sýra.

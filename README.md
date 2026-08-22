@@ -38,8 +38,15 @@ Před cyklickou pastí se **zastavuje**: prostředek obrazovky (nebo mezerník) 
 zabrzdí a nechá ji čichat na místě, dokud se past neotevře.
 
 Ovládání nakláněním se zapíná ikonou telefonu v pravém rohu (na iPhonu si při
-tom řekne o přístup k čidlu). Stačí mírný náklon a hra si při zapnutí zapamatuje,
-jak telefon zrovna držíš.
+tom řekne o přístup k čidlu). Hra si při zapnutí zapamatuje, jak telefon zrovna
+držíš, a pak **reaguje na to, jak moc ho nakloníš**:
+
+| Náklon | Co dělá |
+| --- | --- |
+| do 5° | nic – chvění ruky labyrintem neotáčí |
+| 22,5° | otáčí stejně rychle jako šipka nebo prst |
+| 45° | otáčí dvakrát rychleji |
+| víc než 45° | pořád dvakrát – rychleji už ne, aby šlo udržet orientaci |
 
 Zatáčení je **relativní k myši**: labyrint se otáčí jako mapa v navigaci, takže
 „doleva“ znamená doleva pořád, ať už myš běží kamkoliv. Zeď myš nezabije, jen se

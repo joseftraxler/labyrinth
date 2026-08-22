@@ -1,10 +1,10 @@
 /**
- * Ovládání nakloněním telefonu. Náklon doleva a doprava zatáčí – drží se jako
- * klávesa, takže myš zahne v první odbočce, která se naskytne, a při dalším
- * rozcestí zase.
+ * Ovládání nakloněním telefonu. Náklon doleva a doprava stáčí labyrint, a to
+ * **podle toho, jak moc je telefon nakloněný** (`RESPONSE`) – mírný náklon
+ * otáčí pomalu a přesně, prudký rychle.
  *
- * Vazba je stejná jako u zvuku a vibrací: `Game` se jen ptá, kam se naklání
- * (`read()`), náklon o hře nic neví.
+ * Vazba je stejná jako u zvuku a vibrací: `Game` se jen ptá, jak rychle a kam
+ * se otáčet (`read()`), náklon o hře nic neví.
  *
  * Tři věci, bez kterých by to na telefonu nefungovalo:
  *
@@ -22,12 +22,25 @@
 
 const STORAGE_KEY = 'labyrinth-tilt';
 
-// Práh ve stupních, kdy se začne zatáčet, a menší práh, kdy se zatáčení pustí.
-// Rozdíl mezi nimi je schválně: jinak by se na hranici zatáčka zapínala
-// a vypínala. Stačí mírné naklonění – čidlo v telefonu má rozlišení hluboko
-// pod stupněm, takže se dá jet i s telefonem skoro na plocho.
-const TURN_ON = 6;
-const TURN_OFF = 3;
+/**
+ * Jak se náklon ve stupních převádí na rychlost otáčení (v násobcích
+ * `TURN_RATE`). Mezi zlomovými body se počítá lineárně:
+ *
+ *   do 5°   nic – telefon nikdo nedrží dokonale v klidu a chvění ruky nesmí
+ *           labyrintem otáčet,
+ *   22,5°   základní rychlost, stejná jako u šipky nebo prstu na kraji,
+ *   45°     dvojnásobek – rychlé otočení, když je potřeba,
+ *   nad 45° už nic navíc, jinak by šlo telefonem točit dokola a labyrint by se
+ *           roztočil tak, že by hráč ztratil orientaci.
+ *
+ * Odezva je záměrně **plynulá, ne přepínač**: mírný náklon stáčí labyrint
+ * pomalu a přesně, prudký rychle.
+ */
+const RESPONSE = [
+    {tilt: 5, rate: 0},
+    {tilt: 22.5, rate: 1},
+    {tilt: 45, rate: 2},
+];
 
 // Vyhlazení čtení z čidla (0–1, míň = klidnější, ale línější)
 const SMOOTH = 0.3;
@@ -42,7 +55,6 @@ export class Tilt {
         this.raw = 0;
         this.zero = null;
         this.angle = 0;
-        this.side = null;
 
         this.onOrientation = event => this.#read(event);
 
@@ -85,14 +97,12 @@ export class Tilt {
         this.enabled = true;
         this.zero = null;       // klidová poloha se vezme z prvního čtení
         this.angle = 0;
-        this.side = null;
         window.addEventListener('deviceorientation', this.onOrientation);
         remember(true);
     }
 
     stop() {
         this.enabled = false;
-        this.side = null;
         window.removeEventListener('deviceorientation', this.onOrientation);
         remember(false);
     }
@@ -101,24 +111,18 @@ export class Tilt {
     recalibrate() {
         this.zero = null;
         this.angle = 0;
-        this.side = null;
     }
 
     /**
-     * Kam se telefon naklání: `'left'`, `'right'`, nebo nic. Volá se jednou za
-     * snímek – hra si z toho udělá stejný pokyn, jako by přišel z klávesnice.
+     * Jak rychle se má labyrint otáčet: záporně doleva, kladně doprava,
+     * 0 vůbec. Číslo je násobek `TURN_RATE` podle míry náklonu (`RESPONSE`).
+     * Volá se jednou za snímek.
      */
     read() {
-        if (!this.enabled) return null;
+        if (!this.enabled) return 0;
 
         this.angle += ((this.raw - (this.zero ?? this.raw)) - this.angle) * SMOOTH;
-
-        const limit = this.side ? TURN_OFF : TURN_ON;
-        if (this.angle < -limit) this.side = 'left';
-        else if (this.angle > limit) this.side = 'right';
-        else this.side = null;
-
-        return this.side;
+        return Math.sign(this.angle) * rateFor(Math.abs(this.angle));
     }
 
     #read(event) {
@@ -133,6 +137,22 @@ export class Tilt {
         this.raw = gamma * Math.cos(screenAngle) - beta * Math.sin(screenAngle);
         if (this.zero === null) this.zero = this.raw;
     }
+}
+
+/** Rychlost otáčení pro daný náklon – lineárně mezi body `RESPONSE`. */
+function rateFor(tilt) {
+    let previous = {tilt: 0, rate: 0};
+
+    for (const point of RESPONSE) {
+        if (tilt <= point.tilt) {
+            const span = point.tilt - previous.tilt;
+            const part = (tilt - previous.tilt) / span;
+            return previous.rate + (point.rate - previous.rate) * part;
+        }
+        previous = point;
+    }
+
+    return previous.rate;   // nad posledním bodem se už nezrychluje
 }
 
 function remember(enabled) {

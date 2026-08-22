@@ -23,6 +23,14 @@ export const BASE_SPEED = 2.35;     // rychlost běhu při 100 % (buněk/s)
 export const TURN_RATE = 2.4;       // rad/s
 
 /**
+ * Nejvyšší násobek `TURN_RATE`, kterým se dá otáčet. Prudce nakloněný telefon
+ * stáčí labyrint dvakrát rychleji než šipka (`js/tilt.js`), ale výš už to nejde:
+ * v rychleji rotujícím labyrintu hráč ztratí orientaci a plánek v rohu přestane
+ * stačit.
+ */
+export const TURN_MAX = 2;
+
+/**
  * Poloměr myšího tělíčka pro kolize se zdí. Chodba je široká jednu buňku, takže
  * z každé strany zbývá kolem dvou desetin buňky vůle – dost na to, aby se dalo
  * chodbou běžet i s trochu nakřivo namířeným čumákem, a málo na to, aby se dalo
