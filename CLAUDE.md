@@ -173,11 +173,11 @@ Tři vstupy, jedna cesta:
   prostředek zastaví. Obojí se drží. Držení se hlídá po jednotlivých prstech,
   takže puštění jednoho prstu nezruší zatáčení druhým.
 - **Náklon telefonu** (`js/tilt.js`) – náklon doleva a doprava stáčí labyrint,
-  a to **úměrně tomu, jak moc je telefon nakloněný**: do `DEAD` (5°) nic, pak
-  lineárně nahoru až po `FULL` (45°), kde se otáčí nejrychleji (`TURN_MAX`,
-  dvojnásobek klávesy); výš už se nezrychluje. V půlce cesty se tedy otáčí
-  zhruba půlkou nejvyšší rychlosti. Odezva je plynulá schválně – mírným
-  náklonem se dá mířit přesně, prudkým rychle otočit. Tři věci, bez kterých by to nefungovalo:
+  a to **úměrně tomu, jak moc je telefon nakloněný**: do `DEAD_ZONE` (10°) nic,
+  pak lineárně nahoru až po `FULL_TILT` (90°, tedy telefon na boku), kde se
+  otáčí nejrychleji (`TURN_MAX`); výš už se nezrychluje. Rozsah je schválně
+  široký – při běžném naklonění o pár desítek stupňů se labyrint stáčí pomalu
+  a dá se s ním mířit, prudké otočení je pak vědomé gesto. Tři věci, bez kterých by to nefungovalo:
   čidlo se pozná až podle první události (na desktopu `DeviceOrientationEvent`
   existuje, ale nikdy nic nepošle), iOS chce povolení a dá ho **jen z dotyku**
   (proto o něj žádá až přepínač), a **klidová poloha se měří při zapnutí** –

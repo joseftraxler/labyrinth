@@ -43,14 +43,14 @@ držíš, a pak **reaguje na to, jak moc ho nakloníš**:
 
 | Náklon | Co dělá |
 | --- | --- |
-| do 5° | nic – chvění ruky labyrintem neotáčí |
-| 12° | pomalu, na doladění směru (asi 50°/s) |
-| 25° | zhruba jako šipka nebo prst (asi 137°/s) |
-| 45° | nejrychleji, dvakrát tolik co šipka (275°/s) |
-| víc než 45° | pořád stejně – rychleji už ne, aby šlo udržet orientaci |
+| do 10° | nic – chvění ruky labyrintem neotáčí |
+| 20° | zvolna, na doladění směru (asi 35°/s) |
+| 45° | svižně (asi 120°/s) |
+| 90° (telefon na boku) | nejrychleji (275°/s) |
+| víc | pořád stejně – rychleji už ne, aby šlo udržet orientaci |
 
-Mezi pěti a pětačtyřiceti stupni rychlost roste rovnoměrně, takže se dá mířit
-i doladit pár stupni náklonu.
+Mezi deseti a devadesáti stupni rychlost roste rovnoměrně, takže se běžným
+nakloněním o pár desítek stupňů dá mířit v klidu a přesně.
 
 Zatáčení je **relativní k myši**: labyrint se otáčí jako mapa v navigaci, takže
 „doleva“ znamená doleva pořád, ať už myš běží kamkoliv. Zeď myš nezabije, jen se

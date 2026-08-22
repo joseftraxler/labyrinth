@@ -1,7 +1,7 @@
 /**
  * Ovládání nakloněním telefonu. Náklon doleva a doprava stáčí labyrint, a to
- * **podle toho, jak moc je telefon nakloněný** (`DEAD`, `FULL`) – mírný náklon
- * otáčí pomalu a přesně, prudký rychle.
+ * **podle toho, jak moc je telefon nakloněný** (`DEAD_ZONE`, `FULL_TILT`) –
+ * mírný náklon otáčí pomalu a přesně, prudký rychle.
  *
  * Vazba je stejná jako u zvuku a vibrací: `Game` se jen ptá, jak rychle a kam
  * se otáčet (`read()`), náklon o hře nic neví.
@@ -27,19 +27,18 @@ const STORAGE_KEY = 'labyrinth-tilt';
 /**
  * Jak se náklon ve stupních převádí na rychlost otáčení:
  *
- *   do `DEAD`   nic – telefon nikdo nedrží dokonale v klidu a chvění ruky
- *               nesmí labyrintem otáčet,
- *   `DEAD`–`FULL`  plynule nahoru, takže mírným náklonem jde mířit přesně
- *               a prudkým se dá rychle otočit,
- *   nad `FULL`  už nic navíc (`TURN_MAX`) – v rychleji rotujícím labyrintu by
- *               hráč ztratil orientaci a plánek v rohu by přestal stačit.
+ *   do `DEAD_ZONE`        nic – telefon nikdo nedrží dokonale v klidu
+ *                         a chvění ruky nesmí labyrintem otáčet,
+ *   `DEAD_ZONE`–`FULL_TILT`  plynule nahoru, rovnoměrně,
+ *   nad `FULL_TILT`       už nic navíc (`TURN_MAX`).
  *
- * Odezva je záměrně **plynulá, ne přepínač**: mezi prahem a plným náklonem
- * roste rovnoměrně, takže v půlce cesty se otáčí zhruba půlkou nejvyšší
- * rychlosti.
+ * Rozsah je schválně široký: plná rychlost je až u telefonu otočeného na bok,
+ * takže na tom, jak se hraje, se podílí hlavně spodní část křivky – při běžném
+ * naklonění o pár desítek stupňů se labyrint stáčí pomalu a dá se s ním mířit.
+ * Prudké otočení je pak vědomé gesto, ne něco, co se stane omylem.
  */
-const DEAD = 5;
-const FULL = 45;
+export const DEAD_ZONE = 10;
+export const FULL_TILT = 90;
 
 // Vyhlazení čtení z čidla (0–1, míň = klidnější, ale línější)
 const SMOOTH = 0.3;
@@ -140,7 +139,7 @@ export class Tilt {
 
 /** Rychlost otáčení pro daný náklon jako násobek `TURN_RATE`. */
 function rateFor(tilt) {
-    const part = (tilt - DEAD) / (FULL - DEAD);
+    const part = (tilt - DEAD_ZONE) / (FULL_TILT - DEAD_ZONE);
     return Math.max(0, Math.min(1, part)) * TURN_MAX;
 }
 
